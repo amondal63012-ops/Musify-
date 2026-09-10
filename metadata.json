@@ -1,0 +1,6 @@
+{
+  "name": "Spotify Clone",
+  "description": "A web-based music player mimicking Spotify, using the iTunes public API for song previews.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
