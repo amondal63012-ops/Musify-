@@ -536,8 +536,21 @@ export default function Player({
           }
         }}
         onError={(e) => {
-          console.warn("Direct stream error, attempting next track:", e);
-          if (isDirectAudio) {
+          console.warn("Direct stream error, attempting fallback:", e);
+          if (isDirectAudio && audioRef.current && audioRef.current.src) {
+            const currentSrc = audioRef.current.src;
+            if (currentSrc.includes('_320.')) {
+              const fallback160 = currentSrc.replace('_320.', '_160.');
+              audioRef.current.src = fallback160;
+              audioRef.current.play().catch(() => {});
+              return;
+            }
+            if (currentSrc.includes('_160.')) {
+              const fallback96 = currentSrc.replace('_160.', '_96.');
+              audioRef.current.src = fallback96;
+              audioRef.current.play().catch(() => {});
+              return;
+            }
             setTimeout(onNext, 1500);
           }
         }}
