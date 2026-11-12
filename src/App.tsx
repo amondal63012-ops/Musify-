@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 import Player from './components/Player';
 import MainView from './components/MainView';
 import RightSidebar from './components/RightSidebar';
+import MobileBottomNav from './components/MobileBottomNav';
 
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -31,9 +32,10 @@ export default function App() {
   });
   
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+  const [selectedArtistId, setSelectedArtistId] = useState<string | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('spotify_playlists', JSON.stringify(playlists));
+    localStorage.setItem('aura_playlists', JSON.stringify(playlists));
   }, [playlists]);
   
   const mainViewRef = useRef<{ focusSearch: () => void }>(null);
@@ -194,18 +196,33 @@ export default function App() {
     }
   };
 
+  const isCurrentTrackLiked = Boolean(
+    currentTrack && playlists.find(p => p.isLikedSongs)?.tracks.some(t => t.id === currentTrack.id)
+  );
+
+  const handleToggleCurrentTrackLiked = () => {
+    if (!currentTrack) return;
+    if (isCurrentTrackLiked) {
+      handleRemoveTrack(currentTrack.id);
+    } else {
+      handleAddTrackToLiked(currentTrack);
+    }
+  };
+
   return (
     <div className="h-screen w-full bg-black flex flex-col font-sans overflow-hidden select-none text-white">
       {/* Main App Layout */}
-      <div className="flex-1 flex overflow-hidden p-2 gap-2 pb-0">
-        <Sidebar 
-          currentView={currentView}
-          onViewChange={setCurrentView}
-          onSearchShortcut={handleSidebarShortcut} 
-          playlists={playlists}
-          onSelectPlaylist={handleSelectPlaylist}
-          onCreatePlaylist={handleCreatePlaylist}
-        />
+      <div className="flex-1 flex overflow-hidden p-0 md:p-2 gap-2 pb-0">
+        <div className="hidden md:flex h-full">
+          <Sidebar 
+            currentView={currentView}
+            onViewChange={setCurrentView}
+            onSearchShortcut={handleSidebarShortcut} 
+            playlists={playlists}
+            onSelectPlaylist={handleSelectPlaylist}
+            onCreatePlaylist={handleCreatePlaylist}
+          />
+        </div>
         <MainView 
           ref={mainViewRef}
           currentView={currentView}
@@ -222,19 +239,30 @@ export default function App() {
           onAddTrackToPlaylist={handleAddTrackToPlaylist}
           onAddTrackToLiked={handleAddTrackToLiked}
           playlists={playlists}
+          onSelectPlaylist={handleSelectPlaylist}
+          onCreatePlaylist={handleCreatePlaylist}
+          selectedArtistId={selectedArtistId}
+          onSelectArtist={(id) => {
+            setSelectedArtistId(id);
+            setCurrentView('artist');
+          }}
+          onBackFromArtist={() => setCurrentView('artists')}
+          onViewChange={setCurrentView}
         />
         {rightSidebarView !== 'none' && (
-          <RightSidebar 
-            view={rightSidebarView} 
-            currentTrack={currentTrack} 
-            queue={queue} 
-            onClose={() => setRightSidebarView('none')}
-            onPlayTrack={handlePlayTrack}
-          />
+          <div className="hidden md:block">
+            <RightSidebar 
+              view={rightSidebarView} 
+              currentTrack={currentTrack} 
+              queue={queue} 
+              onClose={() => setRightSidebarView('none')}
+              onPlayTrack={handlePlayTrack}
+            />
+          </div>
         )}
       </div>
       
-      {/* Bottom Player Bar */}
+      {/* Player (Floating Mini-Player on mobile, Bottom bar on desktop) */}
       <Player 
         currentTrack={currentTrack}
         isPlaying={isPlaying}
@@ -247,6 +275,22 @@ export default function App() {
         onToggleRepeat={() => setRepeatMode(prev => prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off')}
         rightSidebarView={rightSidebarView}
         onToggleRightSidebar={handleToggleRightSidebar}
+        isLiked={isCurrentTrackLiked}
+        onToggleLike={handleToggleCurrentTrackLiked}
+      />
+
+      {/* Mobile Bottom Navigation Bar (md:hidden) */}
+      <MobileBottomNav 
+        currentView={currentView}
+        onViewChange={(view) => {
+          if (view === 'search') {
+            setCurrentView('search');
+            setTimeout(() => mainViewRef.current?.focusSearch(), 100);
+          } else {
+            setCurrentView(view);
+          }
+        }}
+        onOpenSearch={() => mainViewRef.current?.focusSearch()}
       />
     </div>
   );

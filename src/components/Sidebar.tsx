@@ -3,7 +3,7 @@ import { Playlist } from '../types';
 
 interface SidebarProps {
   currentView: string;
-  onViewChange: (view: 'home' | 'search' | 'library' | 'playlist') => void;
+  onViewChange: (view: 'home' | 'search' | 'library' | 'playlist' | 'viral' | 'artists') => void;
   onSearchShortcut: (query: string) => void;
   playlists: Playlist[];
   onSelectPlaylist: (playlist: Playlist) => void;
@@ -12,7 +12,7 @@ interface SidebarProps {
 
 export default function Sidebar({ currentView, onViewChange, onSearchShortcut, playlists, onSelectPlaylist, onCreatePlaylist }: SidebarProps) {
 
-  const handleNavClick = (view: 'home' | 'search' | 'library') => {
+  const handleNavClick = (view: 'home' | 'search' | 'library' | 'viral' | 'artists') => {
     onViewChange(view);
     if (view === 'search') {
       onSearchShortcut('Search'); // Trigger focus
@@ -24,23 +24,37 @@ export default function Sidebar({ currentView, onViewChange, onSearchShortcut, p
   };
 
   return (
-    <div className="w-[420px] bg-black h-full flex flex-col gap-2 flex-shrink-0 select-none">
+    <div className="w-[340px] bg-black h-full flex flex-col gap-2 flex-shrink-0 select-none">
       
       {/* Top Panel */}
-      <div className="bg-[#121212] rounded-lg px-6 py-5 flex flex-col gap-5">
+      <div className="bg-[#121212] rounded-xl px-5 py-5 flex flex-col gap-4 border border-white/5">
         <div 
           onClick={() => handleNavClick('home')}
-          className={`flex items-center gap-5 cursor-pointer transition font-bold ${currentView === 'home' ? 'text-white' : 'text-[#b3b3b3] hover:text-white'}`}
+          className={`flex items-center gap-4 cursor-pointer transition font-bold text-sm ${currentView === 'home' ? 'text-white' : 'text-[#b3b3b3] hover:text-white'}`}
         >
-          <Home className={`w-7 h-7 ${currentView === 'home' ? 'fill-current' : ''}`} />
+          <Home className={`w-5 h-5 ${currentView === 'home' ? 'text-[#1db954] fill-current' : ''}`} />
           Home
         </div>
         <div 
           onClick={() => handleNavClick('search')}
-          className={`flex items-center gap-5 cursor-pointer transition font-bold ${currentView === 'search' ? 'text-white' : 'text-[#b3b3b3] hover:text-white'}`}
+          className={`flex items-center gap-4 cursor-pointer transition font-bold text-sm ${currentView === 'search' ? 'text-white' : 'text-[#b3b3b3] hover:text-white'}`}
         >
-          <Search className={`w-7 h-7 ${currentView === 'search' ? 'text-white' : ''}`} />
+          <Search className={`w-5 h-5 ${currentView === 'search' ? 'text-[#1db954]' : ''}`} />
           Search
+        </div>
+        <div 
+          onClick={() => handleNavClick('viral')}
+          className={`flex items-center gap-4 cursor-pointer transition font-bold text-sm ${currentView === 'viral' ? 'text-white' : 'text-[#b3b3b3] hover:text-white'}`}
+        >
+          <span className="w-5 h-5 flex items-center justify-center text-rose-400 font-extrabold text-xs">🔥</span>
+          Viral Hits
+        </div>
+        <div 
+          onClick={() => handleNavClick('artists')}
+          className={`flex items-center gap-4 cursor-pointer transition font-bold text-sm ${currentView === 'artists' || currentView === 'artist' ? 'text-white' : 'text-[#b3b3b3] hover:text-white'}`}
+        >
+          <span className="w-5 h-5 flex items-center justify-center text-[#1db954] font-extrabold text-xs">★</span>
+          Featured Artists
         </div>
       </div>
 

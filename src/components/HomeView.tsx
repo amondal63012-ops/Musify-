@@ -1,36 +1,64 @@
-import React from 'react';
-import { Play } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Play, Sparkles, Radio, Flame, UserCheck, ChevronRight, TrendingUp } from 'lucide-react';
+import { getCharts, getViralSongs, getArtists } from '../api';
+import { Track, Artist } from '../types';
 
 interface HomeViewProps {
   onPlayContext: (query: string) => void;
+  onPlayTrackDirect?: (track: Track) => void;
+  onSelectArtist?: (artistId: string) => void;
+  onViewAllViral?: () => void;
+  onViewAllArtists?: () => void;
+}
+
+interface ChartItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  coverUrl: string;
+  tracks: any[];
 }
 
 const RECENTLY_PLAYED = [
-  { name: 'Liked Songs', img: 'https://misc.scdn.co/liked-songs/liked-songs-300.png' },
-  { name: 'Top Hits 2026', img: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&h=300&fit=crop' },
-  { name: 'Chill Vibes', img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop' },
-  { name: 'Discover Weekly', img: 'https://images.unsplash.com/photo-1493225457124-a1a2a5f5f924?w=300&h=300&fit=crop' },
-  { name: 'Release Radar', img: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&h=300&fit=crop' },
-  { name: 'Daily Mix 1', img: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&h=300&fit=crop' }
+  { name: 'Ashke Karan Aujla', label: 'Ashke - Karan Aujla', img: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&h=300&fit=crop' },
+  { name: 'India Superhits Top 50', label: 'India Superhits Top 50', img: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&h=300&fit=crop' },
+  { name: 'Arijit Singh Hits', label: 'Arijit Singh Hits', img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop' },
+  { name: 'Punjabi Hot 20', label: 'Punjabi Hot 20', img: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&h=300&fit=crop' },
+  { name: 'Diljit Dosanjh Anthems', label: 'Diljit Dosanjh Anthems', img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop' },
+  { name: 'Top Hits English 2026', label: 'Top Hits English 2026', img: 'https://images.unsplash.com/photo-1493225457124-a1a2a5f5f924?w=300&h=300&fit=crop' }
 ];
 
-const MIXES = [
-  { title: 'Daily Mix 1', desc: 'Drake, The Weeknd, J. Cole and more', img: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&h=300&fit=crop' },
-  { title: 'Pop Rising', desc: 'Who\'s now and next in pop.', img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop' },
-  { title: 'RapCaviar', desc: 'New music from Drake, Future, Travis Scott.', img: 'https://images.unsplash.com/photo-1493225457124-a1a2a5f5f924?w=300&h=300&fit=crop' },
-  { title: 'All Out 2010s', desc: 'The biggest songs of the 2010s.', img: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&h=300&fit=crop' },
-  { title: 'Mega Hit Mix', desc: 'A mega mix of 75 favorites from the last few years!', img: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&h=300&fit=crop' }
-];
+export default function HomeView({ 
+  onPlayContext, 
+  onPlayTrackDirect, 
+  onSelectArtist,
+  onViewAllViral,
+  onViewAllArtists
+}: HomeViewProps) {
+  const [charts, setCharts] = useState<ChartItem[]>([]);
+  const [viralSongs, setViralSongs] = useState<Track[]>([]);
+  const [artists, setArtists] = useState<Artist[]>([]);
 
-const NEW_RELEASES = [
-  { title: 'New Music Friday', desc: 'The very best in new music.', img: 'https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=300&h=300&fit=crop' },
-  { title: 'Global Top 50', desc: 'Your daily update of the most played tracks.', img: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=300&h=300&fit=crop' },
-  { title: 'Viral 50', desc: 'Your daily update of the most viral tracks.', img: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300&h=300&fit=crop' },
-  { title: 'Today\'s Top Hits', desc: 'Ariana Grande is on top of the Hottest 50!', img: 'https://images.unsplash.com/photo-1504509546545-e000b4a62425?w=300&h=300&fit=crop' },
-  { title: 'Are & Be', desc: 'The hottest R&B right now.', img: 'https://images.unsplash.com/photo-1516280440502-a2fc997782b7?w=300&h=300&fit=crop' }
-];
+  useEffect(() => {
+    getCharts().then(data => {
+      if (Array.isArray(data) && data.length > 0) {
+        setCharts(data);
+      }
+    });
 
-export default function HomeView({ onPlayContext }: HomeViewProps) {
+    getViralSongs().then(data => {
+      if (Array.isArray(data) && data.length > 0) {
+        setViralSongs(data);
+      }
+    });
+
+    getArtists().then(data => {
+      if (Array.isArray(data) && data.length > 0) {
+        setArtists(data);
+      }
+    });
+  }, []);
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -39,73 +67,198 @@ export default function HomeView({ onPlayContext }: HomeViewProps) {
   };
 
   return (
-    <div className="p-6 pb-24 relative z-10">
-      <h2 className="text-3xl font-bold text-white mb-6 tracking-tight">{getGreeting()}</h2>
+    <div className="p-4 sm:p-6 pb-36 relative z-10 select-none">
       
-      {/* 6-grid recent */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-10">
+      {/* Header Greeting */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">{getGreeting()}</h2>
+          <p className="text-xs text-white/50 mt-0.5">High-fidelity 320kbps streams with video canvas</p>
+        </div>
+        <div className="hidden sm:flex items-center gap-2 bg-[#1db954]/10 border border-[#1db954]/30 px-3 py-1.5 rounded-full text-xs text-[#1db954] font-medium">
+          <Radio className="w-3.5 h-3.5 animate-pulse text-[#1db954]" />
+          <span>Uninterrupted Background & Lock Screen Playback</span>
+        </div>
+      </div>
+      
+      {/* Quick Launch Cards (2-column layout on mobile) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 mb-8">
         {RECENTLY_PLAYED.map((item, idx) => (
           <div 
             key={idx} 
             onClick={() => onPlayContext(item.name)}
-            className="group relative h-16 bg-white/5 hover:bg-white/20 transition-colors rounded overflow-hidden flex items-center cursor-pointer"
+            className="group relative h-14 bg-white/5 hover:bg-white/10 active:bg-white/15 transition-all rounded-lg overflow-hidden flex items-center cursor-pointer border border-white/5"
           >
-            <img src={item.img} alt={item.name} className="w-16 h-16 object-cover shadow-[4px_0_12px_rgba(0,0,0,0.2)]" />
-            <div className="font-bold text-white px-4 truncate flex-1">{item.name}</div>
-            <div className="absolute right-3 opacity-0 group-hover:opacity-100 transition-opacity bg-[#1db954] rounded-full p-3 shadow-lg shadow-black/40 hover:scale-105">
-              <Play className="w-5 h-5 text-black fill-current ml-1" />
+            <img src={item.img} alt={item.label} className="w-14 h-14 object-cover shadow-[4px_0_12px_rgba(0,0,0,0.2)] flex-shrink-0" />
+            <div className="font-bold text-xs sm:text-sm text-white px-3 truncate flex-1">{item.label}</div>
+            <div className="absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#1db954] rounded-full p-2 shadow-lg hover:scale-105 hidden sm:block">
+              <Play className="w-4 h-4 text-black fill-current ml-0.5" />
             </div>
           </div>
         ))}
       </div>
 
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-white hover:underline cursor-pointer tracking-tight">Made For You</h2>
-        <span className="text-sm font-bold text-gray-400 hover:underline cursor-pointer">Show all</span>
-      </div>
-      
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 mb-10">
-        {MIXES.map((mix, idx) => (
-          <div 
-            key={idx} 
-            onClick={() => onPlayContext(mix.title)}
-            className="bg-[#181818] hover:bg-[#282828] transition-colors p-4 rounded-xl cursor-pointer group relative"
-          >
-            <div className="relative mb-4 w-full aspect-square">
-              <img src={mix.img} alt={mix.title} className="w-full h-full object-cover rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.5)]" />
-              <div className="absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 bg-[#1db954] rounded-full p-3 shadow-xl hover:scale-105 hover:bg-[#1ed760]">
-                <Play className="w-5 h-5 text-black fill-current ml-1" />
-              </div>
+      {/* 1. VIRAL HITS SECTION (Requested by user) */}
+      <div className="mb-9">
+        <div className="flex items-center justify-between mb-3.5">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center">
+              <Flame className="w-4 h-4 fill-current" />
             </div>
-            <h3 className="font-bold text-white mb-1 truncate">{mix.title}</h3>
-            <p className="text-sm text-gray-400 line-clamp-2">{mix.desc}</p>
+            <div>
+              <h2 className="text-lg sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                Viral Hits & Trending
+                <span className="text-[10px] bg-rose-500 text-white font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                  HOT
+                </span>
+              </h2>
+              <p className="text-[11px] text-white/50">Top chart-busters trending across social media & streaming</p>
+            </div>
           </div>
-        ))}
+          {onViewAllViral && (
+            <button 
+              onClick={onViewAllViral}
+              className="text-xs font-bold text-white/60 hover:text-white flex items-center gap-0.5"
+            >
+              See all <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {viralSongs.length > 0 ? (
+          <div className="flex overflow-x-auto gap-3.5 pb-2 scrollbar-none md:grid md:grid-cols-4 lg:grid-cols-5">
+            {viralSongs.map((song, idx) => (
+              <div 
+                key={`${song.id || 'viral'}-${idx}`} 
+                onClick={() => {
+                  if (onPlayTrackDirect) {
+                    onPlayTrackDirect(song);
+                  } else {
+                    onPlayContext(`${song.title} ${song.artist}`);
+                  }
+                }}
+                className="w-[145px] sm:w-[170px] md:w-auto flex-shrink-0 bg-[#181818] hover:bg-[#222222] active:bg-[#282828] transition-all p-3 rounded-xl cursor-pointer group relative border border-white/5"
+              >
+                <div className="relative mb-2.5 w-full aspect-square">
+                  <img 
+                    src={song.coverUrl} 
+                    alt={song.title} 
+                    className="w-full h-full object-cover rounded-lg shadow-[0_8px_20px_rgba(0,0,0,0.6)]" 
+                  />
+                  {/* Viral Rank Badge */}
+                  <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md text-white text-[10px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10">
+                    <TrendingUp className="w-2.5 h-2.5 text-rose-400" />
+                    #{idx + 1}
+                  </div>
+                  {/* Floating Play Button */}
+                  <div className="absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 bg-[#1db954] rounded-full p-2.5 shadow-xl hover:scale-105 hidden sm:block">
+                    <Play className="w-4 h-4 text-black fill-current ml-0.5" />
+                  </div>
+                </div>
+                <h3 className="font-bold text-xs sm:text-sm text-white mb-0.5 truncate">{song.title}</h3>
+                <p className="text-[11px] text-white/50 line-clamp-1">{song.artist}</p>
+                <div className="mt-1 flex items-center gap-1">
+                  <span className="text-[9px] bg-[#1db954]/20 text-[#1db954] font-extrabold px-1.5 py-0.2 rounded">
+                    320K HQ
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <div key={n} className="w-[145px] h-48 bg-white/5 animate-pulse rounded-xl flex-shrink-0" />
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-white hover:underline cursor-pointer tracking-tight">Your top mixes</h2>
-        <span className="text-sm font-bold text-gray-400 hover:underline cursor-pointer">Show all</span>
-      </div>
-      
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 mb-10">
-        {NEW_RELEASES.map((mix, idx) => (
-          <div 
-            key={idx} 
-            onClick={() => onPlayContext(mix.title)}
-            className="bg-[#181818] hover:bg-[#282828] transition-colors p-4 rounded-xl cursor-pointer group relative"
-          >
-            <div className="relative mb-4 w-full aspect-square">
-              <img src={mix.img} alt={mix.title} className="w-full h-full object-cover rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.5)]" />
-              <div className="absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 bg-[#1db954] rounded-full p-3 shadow-xl hover:scale-105 hover:bg-[#1ed760]">
-                <Play className="w-5 h-5 text-black fill-current ml-1" />
-              </div>
+      {/* 2. ARTISTS SECTION (Requested by user) */}
+      <div className="mb-9">
+        <div className="flex items-center justify-between mb-3.5">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-[#1db954]/20 text-[#1db954] flex items-center justify-center">
+              <UserCheck className="w-4 h-4" />
             </div>
-            <h3 className="font-bold text-white mb-1 truncate">{mix.title}</h3>
-            <p className="text-sm text-gray-400 line-clamp-2">{mix.desc}</p>
+            <div>
+              <h2 className="text-lg sm:text-2xl font-bold text-white tracking-tight">Popular Artists</h2>
+              <p className="text-[11px] text-white/50">Top streaming music icons & their popular hits</p>
+            </div>
           </div>
-        ))}
+          {onViewAllArtists && (
+            <button 
+              onClick={onViewAllArtists}
+              className="text-xs font-bold text-white/60 hover:text-white flex items-center gap-0.5"
+            >
+              See all <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex overflow-x-auto gap-4 pb-2 scrollbar-none">
+          {artists.map((artist, idx) => (
+            <div 
+              key={`${artist.id}-${idx}`}
+              onClick={() => {
+                if (onSelectArtist) {
+                  onSelectArtist(artist.id);
+                } else {
+                  onPlayContext(artist.name);
+                }
+              }}
+              className="w-[125px] sm:w-[145px] flex-shrink-0 flex flex-col items-center text-center p-2 rounded-xl hover:bg-white/5 active:bg-white/10 transition cursor-pointer group"
+            >
+              <div className="relative mb-2 w-24 h-24 sm:w-28 sm:h-28">
+                <img 
+                  src={artist.avatarUrl} 
+                  alt={artist.name} 
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
+                  }}
+                  className="w-full h-full object-cover rounded-full shadow-xl border-2 border-transparent group-hover:border-[#1db954] transition-all bg-white/5"
+                />
+                <div className="absolute bottom-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[#1db954] rounded-full p-2 shadow-lg hidden sm:block">
+                  <Play className="w-3.5 h-3.5 text-black fill-current ml-0.5" />
+                </div>
+              </div>
+              <h3 className="font-bold text-xs sm:text-sm text-white truncate w-full">{artist.name}</h3>
+              <p className="text-[10px] text-white/50 truncate w-full mt-0.5">Artist</p>
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* 3. OFFICIAL CHARTS & PLAYLISTS */}
+      {charts.length > 0 && (
+        <div className="mb-9">
+          <div className="flex items-center justify-between mb-3.5">
+            <div>
+              <h2 className="text-lg sm:text-2xl font-bold text-white tracking-tight">Top Charts & Playlists</h2>
+              <p className="text-[11px] text-white/50">Official chart rankings with lossless audio</p>
+            </div>
+          </div>
+          <div className="flex overflow-x-auto gap-4 pb-2 scrollbar-none md:grid md:grid-cols-4 lg:grid-cols-5">
+            {charts.map((chart, idx) => (
+              <div 
+                key={`${chart.id}-${idx}`} 
+                onClick={() => onPlayContext(chart.title)}
+                className="w-[145px] sm:w-[170px] md:w-auto flex-shrink-0 bg-[#181818] hover:bg-[#222222] active:bg-[#282828] transition-all p-3 rounded-xl cursor-pointer group relative border border-white/5"
+              >
+                <div className="relative mb-3 w-full aspect-square">
+                  <img src={chart.coverUrl} alt={chart.title} className="w-full h-full object-cover rounded-lg shadow-[0_8px_20px_rgba(0,0,0,0.5)]" />
+                  <div className="absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 bg-[#1db954] rounded-full p-2.5 shadow-xl hover:scale-105 hidden sm:block">
+                    <Play className="w-4 h-4 text-black fill-current ml-0.5" />
+                  </div>
+                </div>
+                <h3 className="font-bold text-xs sm:text-sm text-white mb-0.5 truncate">{chart.title}</h3>
+                <p className="text-[11px] text-white/50 line-clamp-1">{chart.subtitle || `${chart.tracks?.length || 20} songs`}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

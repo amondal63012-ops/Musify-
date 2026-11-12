@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "Aura Music Player",
+  "short_name": "AuraMusic",
+  "description": "Unlimited 320kbps music streaming player with continuous background playback, live video canvas, and synchronized lyrics.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "icons": [
+    {
+      "src": "https://c.saavncdn.com/artists/Karan_Aujla_005_20260925061936_500x500.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "https://c.saavncdn.com/artists/Karan_Aujla_005_20260925061936_500x500.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}
