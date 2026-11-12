@@ -488,8 +488,10 @@ export default function MobileNowPlaying({
         {/* Utility Icon Row (Cast / Device, Share, Queue / Repeat) */}
         <div className="flex items-center justify-between text-white/60 px-2 pt-1 text-xs">
           <div className="flex items-center gap-1.5 text-white/70">
-            <MonitorSpeaker className="w-4 h-4 text-[#1db954]" />
-            <span className="text-[11px] font-semibold text-[#1db954]">320kbps Lossless Audio</span>
+            <MonitorSpeaker className={`w-4 h-4 ${currentTrack.streamUrl ? 'text-[#1db954]' : 'text-purple-400'}`} />
+            <span className={`text-[11px] font-semibold ${currentTrack.streamUrl ? 'text-[#1db954]' : 'text-purple-400'}`}>
+              {currentTrack.source === 'soundcloud' ? 'SoundCloud Stream • Background Active' : currentTrack.source === 'gaana' ? 'Gaana 320k • Background Active' : currentTrack.source === 'audius' ? 'Audius 320k • Background Active' : currentTrack.streamUrl ? '320kbps Direct Background Audio' : 'Official Master • Background PiP Ready'}
+            </span>
           </div>
 
           <div className="flex items-center gap-5">

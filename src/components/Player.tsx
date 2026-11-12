@@ -2,6 +2,7 @@ import { Play, Pause, SkipBack, SkipForward, Volume2, Repeat, Shuffle, MonitorSp
 import { Track, RepeatMode } from '../types';
 import React, { useEffect, useRef, useState } from 'react';
 import YouTube, { YouTubePlayer, YouTubeEvent } from 'react-youtube';
+import Hls from 'hls.js';
 import MobileNowPlaying from './MobileNowPlaying';
 
 interface PlayerProps {
@@ -64,6 +65,8 @@ class LiveAudioSessionKeeper {
 
 const liveAudioSessionKeeper = new LiveAudioSessionKeeper();
 
+const SILENT_AUDIO_URI = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+
 export default function Player({ 
   currentTrack, 
   isPlaying, 
@@ -85,13 +88,28 @@ export default function Player({
   const [isMobileNowPlayingOpen, setIsMobileNowPlayingOpen] = useState(false);
   const playerRef = useRef<YouTubePlayer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const carrierAudioRef = useRef<HTMLAudioElement | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const retryCountRef = useRef(0);
+  const loadedStreamUrlRef = useRef<string | null>(null);
 
   const isDirectAudio = Boolean(currentTrack?.streamUrl);
 
-  // Maintain active Web Audio hardware pipeline whenever playing
+  useEffect(() => {
+    retryCountRef.current = 0;
+  }, [currentTrack?.id]);
+
+  // Maintain active Web Audio hardware pipeline and silent carrier whenever playing
   useEffect(() => {
     if (isPlaying) {
       liveAudioSessionKeeper.resume();
+      if (carrierAudioRef.current && carrierAudioRef.current.paused) {
+        carrierAudioRef.current.play().catch(() => {});
+      }
+    } else {
+      if (carrierAudioRef.current && !carrierAudioRef.current.paused) {
+        carrierAudioRef.current.pause();
+      }
     }
   }, [isPlaying]);
 
@@ -100,7 +118,10 @@ export default function Player({
     const handleBackgroundState = () => {
       liveAudioSessionKeeper.resume();
       if (isPlaying) {
-        if (audioRef.current && audioRef.current.paused) {
+        if (carrierAudioRef.current && carrierAudioRef.current.paused) {
+          carrierAudioRef.current.play().catch(() => {});
+        }
+        if (audioRef.current && audioRef.current.paused && isDirectAudio) {
           audioRef.current.play().catch(() => {});
         }
         if (!isDirectAudio && playerRef.current) {
@@ -126,14 +147,14 @@ export default function Player({
     if (!isPlaying) return;
     const heartbeat = setInterval(() => {
       liveAudioSessionKeeper.resume();
+      if (carrierAudioRef.current && carrierAudioRef.current.paused) {
+        carrierAudioRef.current.play().catch(() => {});
+      }
       if (isDirectAudio) {
         if (audioRef.current && audioRef.current.paused) {
           audioRef.current.play().catch(() => {});
         }
       } else {
-        if (audioRef.current && audioRef.current.paused) {
-          audioRef.current.play().catch(() => {});
-        }
         if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
           try {
             const state = playerRef.current.getPlayerState();
@@ -274,53 +295,70 @@ export default function Player({
     if (!audio) return;
 
     if (isDirectAudio && currentTrack?.streamUrl) {
-      // Direct 320kbps MP3 audio playback
       if (audio.srcObject) {
         audio.srcObject = null;
       }
       audio.loop = false;
-      if (audio.src !== currentTrack.streamUrl) {
-        audio.src = currentTrack.streamUrl;
-        audio.volume = volume;
-        setProgress(0);
+
+      const streamUrl = currentTrack.streamUrl;
+      const isHls = currentTrack.source === 'soundcloud' || streamUrl.includes('.m3u8') || streamUrl.includes('soundcloud');
+
+      if (isHls && Hls.isSupported() && !audio.canPlayType('application/vnd.apple.mpegurl')) {
+        if (!hlsRef.current || (hlsRef.current as any).url !== streamUrl) {
+          if (hlsRef.current) {
+            hlsRef.current.destroy();
+          }
+          const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+          hls.loadSource(streamUrl);
+          hls.attachMedia(audio);
+          (hls as any).url = streamUrl;
+          loadedStreamUrlRef.current = streamUrl;
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (isPlaying) {
+              audio.play().catch(e => console.warn('HLS play error:', e));
+            }
+          });
+          hlsRef.current = hls;
+        }
+      } else {
+        if (hlsRef.current) {
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        }
+        if (loadedStreamUrlRef.current !== streamUrl) {
+          loadedStreamUrlRef.current = streamUrl;
+          audio.src = streamUrl;
+          audio.volume = volume;
+          audio.load();
+          setProgress(0);
+        }
       }
 
       if (isPlaying) {
         if (playerRef.current) {
           try {
             playerRef.current.pauseVideo();
-          } catch {
-            // ignore
-          }
+          } catch {}
         }
-        audio.play().catch(err => {
-          console.warn('Audio play request failed/prevented:', err);
-        });
+        if (audio.paused) {
+          audio.play().catch(err => {
+            console.warn('Audio play request failed/prevented:', err);
+          });
+        }
       } else {
-        audio.pause();
-      }
-    } else if (currentTrack) {
-      // For YouTube tracks: Keep the HTML5 audio element playing a continuous live MediaStream.
-      // An active live MediaStream never reaches an 'ended' state and never suffers from buffer underflow.
-      // This commands iOS Safari and Android Chrome to treat the browser tab as an active OS audio session,
-      // guaranteeing uninterrupted background execution, lock screen controls, and hardware audio access!
-      const liveStream = liveAudioSessionKeeper.getMediaStream();
-      if (liveStream && audio.srcObject !== liveStream) {
-        audio.src = '';
-        audio.srcObject = liveStream;
-        audio.volume = 0.01;
-      }
-
-      if (isPlaying) {
-        liveAudioSessionKeeper.resume();
-        audio.play().catch(() => {});
-      } else {
-        audio.pause();
+        if (!audio.paused) {
+          audio.pause();
+        }
       }
     } else {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
       if (audio.srcObject) {
         audio.srcObject = null;
       }
+      loadedStreamUrlRef.current = null;
       audio.pause();
     }
   }, [currentTrack, isPlaying, isDirectAudio, volume]);
@@ -500,15 +538,25 @@ export default function Player({
         navigator.mediaSession.playbackState = 'paused';
       }
     } else if (state === 0) { // ENDED
-      onNext();
+      const curr = event.target.getCurrentTime() || 0;
+      const dur = event.target.getDuration() || duration || 0;
+      if (dur > 0 && curr >= dur - 3) {
+        onNext();
+      } else {
+        try {
+          event.target.playVideo();
+        } catch {}
+      }
     }
   };
 
   const onPlayerError = (event: YouTubeEvent) => {
     console.error("YouTube Player Error:", event.data);
-    setTimeout(() => {
-      onNext();
-    }, 1500);
+    if (playerRef.current) {
+      try {
+        playerRef.current.playVideo();
+      } catch {}
+    }
   };
 
   return (
@@ -518,42 +566,84 @@ export default function Player({
         ref={audioRef}
         playsInline
         preload="auto"
+        onCanPlay={() => {
+          if (isPlaying && isDirectAudio && audioRef.current && audioRef.current.paused) {
+            audioRef.current.play().catch(() => {});
+          }
+        }}
         onTimeUpdate={() => {
           if (audioRef.current && isDirectAudio) {
             const t = audioRef.current.currentTime;
-            setProgress(t);
+            const d = audioRef.current.duration;
+            if (!isNaN(t)) setProgress(t);
+            if (!isNaN(d) && d > 0) setDuration(d);
             window.dispatchEvent(new CustomEvent('playerProgress', { detail: t }));
           }
         }}
         onLoadedMetadata={() => {
           if (audioRef.current && isDirectAudio) {
-            setDuration(audioRef.current.duration || 0);
+            const d = audioRef.current.duration;
+            if (!isNaN(d) && d > 0) setDuration(d);
           }
         }}
         onEnded={() => {
           if (isDirectAudio) {
-            onNext();
+            const curr = audioRef.current?.currentTime || 0;
+            const dur = audioRef.current?.duration || duration || 0;
+            if (dur > 0 && curr >= dur - 3) {
+              onNext();
+            } else if (dur > 0 && curr < dur - 3) {
+              if (audioRef.current) {
+                audioRef.current.play().catch(() => {});
+              }
+            } else {
+              onNext();
+            }
           }
         }}
         onError={(e) => {
-          console.warn("Direct stream error, attempting fallback:", e);
-          if (isDirectAudio && audioRef.current && audioRef.current.src) {
+          console.warn("Direct stream error, attempting recovery:", e);
+          if (isDirectAudio && audioRef.current) {
             const currentSrc = audioRef.current.src;
-            if (currentSrc.includes('_320.')) {
-              const fallback160 = currentSrc.replace('_320.', '_160.');
-              audioRef.current.src = fallback160;
-              audioRef.current.play().catch(() => {});
+            const savedTime = audioRef.current.currentTime || 0;
+
+            if (retryCountRef.current < 3) {
+              retryCountRef.current += 1;
+              setTimeout(() => {
+                if (audioRef.current) {
+                  if (currentSrc.includes('_320.')) {
+                    audioRef.current.src = currentSrc.replace('_320.', '_160.');
+                  } else if (currentSrc.includes('_160.')) {
+                    audioRef.current.src = currentSrc.replace('_160.', '_96.');
+                  } else {
+                    audioRef.current.load();
+                  }
+                  if (savedTime > 0) {
+                    audioRef.current.currentTime = savedTime;
+                  }
+                  audioRef.current.play().catch(() => {});
+                }
+              }, 1000);
               return;
             }
-            if (currentSrc.includes('_160.')) {
-              const fallback96 = currentSrc.replace('_160.', '_96.');
-              audioRef.current.src = fallback96;
-              audioRef.current.play().catch(() => {});
-              return;
+
+            const dur = audioRef.current.duration || duration || 0;
+            if (dur > 0 && savedTime >= dur - 5) {
+              onNext();
             }
-            setTimeout(onNext, 1500);
           }
         }}
+      />
+
+      {/* Hardware OS Audio Session Carrier: Keeps audio pipeline active across lock screen, tabs, and home screen */}
+      <audio
+        ref={carrierAudioRef}
+        src={SILENT_AUDIO_URI}
+        loop
+        playsInline
+        preload="auto"
+        className="hidden"
+        style={{ display: 'none' }}
       />
 
       {/* Mount point for returning PiP container */}
@@ -578,7 +668,7 @@ export default function Player({
               </button>
             </div>
           <YouTube 
-            videoId={currentTrack.youtubeId || currentTrack.id}
+            videoId={currentTrack.youtubeId || (currentTrack.id ? currentTrack.id.replace(/^yt_/, '') : '')}
             opts={{
               height: isVideoFloating ? '190' : '102',
               width: isVideoFloating ? '320' : '180',
@@ -680,12 +770,12 @@ export default function Player({
                 <div className="flex items-center gap-2 max-w-full">
                   <h4 className="text-sm font-semibold truncate hover:underline cursor-pointer text-white">{currentTrack.title}</h4>
                   {isDirectAudio ? (
-                    <span className="text-[9px] uppercase tracking-wider bg-[#1db954]/20 text-[#1db954] font-bold px-1.5 py-0.5 rounded border border-[#1db954]/30 flex-shrink-0" title="Continuous Background Audio Active">
-                      320k HD Audio
+                    <span className="text-[9px] uppercase tracking-wider bg-[#1db954]/20 text-[#1db954] font-bold px-1.5 py-0.5 rounded border border-[#1db954]/30 flex-shrink-0" title="Direct Stream • Continuous Background & Lock Screen Active">
+                      {currentTrack.source === 'soundcloud' ? 'SoundCloud' : currentTrack.source === 'gaana' ? 'Gaana 320k' : currentTrack.source === 'audius' ? 'Audius 320k' : '320k HD Audio'}
                     </span>
                   ) : (
-                    <span className="text-[9px] uppercase tracking-wider bg-purple-500/20 text-purple-400 font-bold px-1.5 py-0.5 rounded border border-purple-500/30 flex-shrink-0" title="Floating PiP Mode Available">
-                      Official HD
+                    <span className="text-[9px] uppercase tracking-wider bg-purple-500/20 text-purple-400 font-bold px-1.5 py-0.5 rounded border border-purple-500/30 flex-shrink-0" title="Official Studio Master • Background Floating Mode Ready">
+                      Official Master
                     </span>
                   )}
                 </div>

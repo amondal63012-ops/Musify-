@@ -9,7 +9,7 @@ export interface Track {
   duration: number;
   youtubeId?: string;
   canvasVideoId?: string;
-  source?: 'jiosaavn' | 'youtube';
+  source?: 'jiosaavn' | 'youtube' | 'audius' | 'soundcloud' | 'gaana';
   isViral?: boolean;
   viralRank?: number;
 }

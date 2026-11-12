@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Play, Sparkles, Radio, Flame, UserCheck, ChevronRight, TrendingUp } from 'lucide-react';
 import { getCharts, getViralSongs, getArtists } from '../api';
-import { Track, Artist } from '../types';
+import { Track, Artist, Playlist } from '../types';
 
 interface HomeViewProps {
   onPlayContext: (query: string) => void;
-  onPlayTrackDirect?: (track: Track) => void;
+  onPlayTrackDirect?: (track: Track, contextPlaylist?: Playlist, contextTrackList?: Track[]) => void;
   onSelectArtist?: (artistId: string) => void;
   onViewAllViral?: () => void;
   onViewAllArtists?: () => void;
@@ -25,7 +25,7 @@ const RECENTLY_PLAYED = [
   { name: 'Arijit Singh Hits', label: 'Arijit Singh Hits', img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop' },
   { name: 'Punjabi Hot 20', label: 'Punjabi Hot 20', img: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&h=300&fit=crop' },
   { name: 'Diljit Dosanjh Anthems', label: 'Diljit Dosanjh Anthems', img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop' },
-  { name: 'Top Hits English 2026', label: 'Top Hits English 2026', img: 'https://images.unsplash.com/photo-1493225457124-a1a2a5f5f924?w=300&h=300&fit=crop' }
+  { name: 'Global Top Hits English', label: 'Global Top Hits', img: 'https://images.unsplash.com/photo-1493225457124-a1a2a5f5f924?w=300&h=300&fit=crop' }
 ];
 
 export default function HomeView({ 
@@ -132,7 +132,7 @@ export default function HomeView({
                 key={`${song.id || 'viral'}-${idx}`} 
                 onClick={() => {
                   if (onPlayTrackDirect) {
-                    onPlayTrackDirect(song);
+                    onPlayTrackDirect(song, undefined, viralSongs);
                   } else {
                     onPlayContext(`${song.title} ${song.artist}`);
                   }

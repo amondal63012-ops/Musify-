@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Pause, Heart, Check, Plus, Clock, Sparkles, UserCheck, ChevronLeft, Radio } from 'lucide-react';
-import { Artist, Track } from '../types';
+import { Artist, Track, Playlist } from '../types';
 import { getArtistDetails } from '../api';
 
 interface ArtistViewProps {
   artistId: string;
   currentTrack: Track | null;
   isPlaying: boolean;
-  onPlayTrack: (track: Track) => void;
+  onPlayTrack: (track: Track, contextPlaylist?: Playlist, contextTrackList?: Track[]) => void;
   onBack: () => void;
   onAddTrackToLiked?: (track: Track) => void;
 }
@@ -117,7 +117,7 @@ export default function ArtistView({
       <div className="px-6 py-4 flex items-center gap-4">
         {tracks.length > 0 && (
           <button 
-            onClick={() => onPlayTrack(tracks[0])}
+            onClick={() => onPlayTrack(tracks[0], undefined, tracks)}
             className="w-14 h-14 bg-[#1db954] hover:scale-105 active:scale-95 rounded-full flex items-center justify-center text-black shadow-xl shadow-[#1db954]/20 transition"
           >
             {isPlaying && currentTrack && tracks.some(t => t.id === currentTrack.id) ? (
@@ -164,7 +164,7 @@ export default function ArtistView({
               return (
                 <div 
                   key={`${track.id}-${index}`}
-                  onClick={() => onPlayTrack(track)}
+                  onClick={() => onPlayTrack(track, undefined, tracks)}
                   className={`group flex items-center justify-between p-2.5 rounded-lg hover:bg-white/10 active:bg-white/15 transition cursor-pointer ${
                     isActive ? 'bg-white/10' : ''
                   }`}

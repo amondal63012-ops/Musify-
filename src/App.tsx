@@ -42,7 +42,7 @@ export default function App() {
   
   useEffect(() => {
     // Initial fetch to populate some data
-    handleSearch('Top hits popular songs 2026');
+    handleSearch('Global Top Hits Official');
   }, []);
 
   const handleSearch = async (query: string) => {
@@ -112,11 +112,15 @@ export default function App() {
     setSelectedPlaylist(updated);
   };
 
-  const handlePlayTrack = (track: Track, contextPlaylist?: Playlist) => {
+  const handlePlayTrack = (track: Track, contextPlaylist?: Playlist, contextTrackList?: Track[]) => {
     if (contextPlaylist) {
       setPlaybackContext({ type: 'playlist', playlist: contextPlaylist, trackList: contextPlaylist.tracks });
-    } else if (currentView === 'search') {
+    } else if (contextTrackList && contextTrackList.length > 0) {
+      setPlaybackContext({ type: 'search', trackList: contextTrackList });
+    } else if (tracks.some(t => t.id === track.id)) {
       setPlaybackContext({ type: 'search', trackList: tracks });
+    } else {
+      setPlaybackContext({ type: 'search', trackList: [track] });
     }
 
     if (currentTrack?.id === track.id) {
@@ -131,7 +135,6 @@ export default function App() {
     if (!currentTrack) return;
     
     if (repeatMode === 'one') {
-      // The seek is handled inside the Player component or by a signal, but we can just reset play state
       setIsPlaying(false);
       setTimeout(() => setIsPlaying(true), 50);
       return;
@@ -146,7 +149,7 @@ export default function App() {
     }
 
     const list = playbackContext.trackList;
-    if (list.length === 0) return;
+    if (!list || list.length === 0) return;
 
     if (isShuffle) {
       const nextIndex = Math.floor(Math.random() * list.length);
@@ -156,6 +159,12 @@ export default function App() {
     }
 
     const currentIndex = list.findIndex(t => t.id === currentTrack.id);
+    if (currentIndex === -1) {
+      // Current track is not in current playback context list; do not jump to index 0
+      setIsPlaying(false);
+      return;
+    }
+
     const nextIndex = currentIndex + 1;
     
     if (nextIndex >= list.length) {

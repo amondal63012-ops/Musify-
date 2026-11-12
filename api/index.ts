@@ -86,11 +86,60 @@ function isUnofficialOrRemix(title: string, artist: string = '', album: string =
     'dahiya the rapper', 'dikkat official', 'clavier', 'marlene t', 'saarthak',
     'factory', 'hardeep grewal', 'your movie soundtrack', 'tribute',
     'michael von bragin', 'maria lorens', 'gareth koch', 'sychoside',
-    'egpianist', 'capybara piano'
+    'egpianist', 'capybara piano', 'skyemane', 'echo rose', 'the midnight library',
+    'taradu', 'boostereo', 'nyae', 'kate chruscicka', 'workout music', 'lovinc',
+    'murxsaki', 'chill darling', 'aish', 'polina cherkas', 'atlantic notes',
+    'deep sleep music collective', 'romeo roy', 'ordsmith', 'industry insiders',
+    'some study music', 'guitar instrumental', 'acoustic version', 'piano cover',
+    'acoustic cover', 'instrumental cover', 'instrumental version', 'workout remix',
+    'fitness remix', 'study beats', 'chill instrumental'
   ];
 
   return badPatterns.some(p => text.includes(p));
 }
+
+const IMPOSTOR_STUDIOS = [
+  'sound tower', 'sunset roses', 'nyae', 'echo rose', 'clavier', 'skyemane',
+  'giacomo bucci', '8-bit arcade', 'arcade player', 'zzang karaoke', 'karaokeysph',
+  'adam gill', 'ace assam beats', 'trapxmxr', 'alberto sordid', 'the midnight library',
+  'taradu', 'boostereo', 'kate chruscicka', 'workout music', 'lovinc', 'murxsaki',
+  'chill darling', 'aish', 'polina cherkas', 'atlantic notes', 'deep sleep music collective',
+  'romeo roy', 'ordsmith', 'industry insiders', 'some study music', 'factory', 'blurr.',
+  'teknodyn', 'mstr snd', "le'mon driver", 'kiran malosana', 'aryan kushagra', 'anu amanat',
+  'himanshi bokadiya', 'karaoke idols', 'backing business', 'dahiya the rapper', 'dikkat official'
+];
+
+const FAMOUS_GLOBAL_ARTISTS = [
+  'justin bieber', 'adele', 'eminem', 'taylor swift', 'billie eilish', 'sabrina carpenter',
+  'drake', 'rihanna', 'coldplay', 'maroon 5', 'bruno mars', 'lady gaga', 'dua lipa',
+  'the weeknd', 'sia', 'avicii', 'ed sheeran', 'ariana grande', 'katy perry', 'selena gomez',
+  'charlie puth', 'shawn mendes', 'imagine dragons', 'alan walker', 'marshmello', 'chainsmokers',
+  'post malone', 'travis scott', 'kendrick lamar', 'kanye west', 'beyonce', 'shakira',
+  'camila cabello', 'olivia rodrigo', 'harry styles', 'zayn', 'one direction'
+];
+
+function isOfficialPublisherTrack(track: any, query: string = ''): boolean {
+  if (!track || !track.title) return false;
+  if (isUnofficialOrRemix(track.title, track.artist, track.album)) return false;
+
+  const aLower = (track.artist || '').toLowerCase();
+  if (IMPOSTOR_STUDIOS.some(imp => aLower.includes(imp))) {
+    return false;
+  }
+
+  const qLower = query.toLowerCase().trim();
+  if (qLower) {
+    for (const fa of FAMOUS_GLOBAL_ARTISTS) {
+      if (qLower.includes(fa) && !aLower.includes(fa)) {
+        // Query specifically targets famous artist 'fa', but track artist is an unrelated third party
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 
 function cleanSongTitle(rawTitle: string, artistName: string = ''): string {
   let title = rawTitle
@@ -181,6 +230,237 @@ async function searchYouTubeOfficialTracks(query: string, artistHint: string = '
   }
 }
 
+// Audius streaming provider integration for direct 320kbps MP3 background audio playback
+async function searchAudiusOfficialTracks(query: string): Promise<any[]> {
+  try {
+    const res = await fetch(`https://api.audius.co/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=AuraMusic`, {
+      signal: AbortSignal.timeout(4000)
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    const data = json.data || [];
+    const tracks: any[] = [];
+    const seen = new Set<string>();
+
+    for (const t of data) {
+      if (!t.id || !t.title || t.is_unlisted || t.is_delete) continue;
+      const cleanT = cleanText(t.title);
+      const cleanArt = cleanText(t.user?.name || 'Verified Artist');
+      if (isUnofficialOrRemix(cleanT, cleanArt)) continue;
+
+      const key = `${cleanT.toLowerCase()}:::${cleanArt.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const streamUrl = `https://api.audius.co/v1/tracks/${t.id}/stream?app_name=AuraMusic`;
+      const coverUrl = t.artwork?.['480x480'] || t.artwork?.['1000x1000'] || t.artwork?.['150x150'] || '';
+
+      tracks.push({
+        id: 'audius_' + t.id,
+        title: cleanT,
+        artist: cleanArt,
+        album: 'Official Audius Master',
+        coverUrl: coverUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80',
+        streamUrl,
+        previewUrl: streamUrl,
+        duration: (t.duration || 0) * 1000,
+        source: 'audius'
+      });
+    }
+    return tracks;
+  } catch (err) {
+    console.error('Audius search error:', err);
+    return [];
+  }
+}
+
+// SoundCloud streaming provider integration for direct audio & HLS background playback
+let cachedScClientId: string = 'qLcgHhXgeEFFaSolTB9I71LBsqncsD93';
+let scClientIdFetchedAt = 0;
+
+async function getSoundCloudClientId(): Promise<string> {
+  const now = Date.now();
+  if (cachedScClientId && now - scClientIdFetchedAt < 1000 * 60 * 60 * 6) {
+    return cachedScClientId;
+  }
+  try {
+    const htmlRes = await fetch('https://soundcloud.com', { signal: AbortSignal.timeout(4000) });
+    if (htmlRes.ok) {
+      const html = await htmlRes.text();
+      const scripts = [...html.matchAll(/src="(https:\/\/a-v2\.sndcdn\.com\/assets\/[^"]+\.js)"/g)].map(m => m[1]);
+      for (const scriptUrl of scripts.slice(-4)) {
+        const sRes = await fetch(scriptUrl, { signal: AbortSignal.timeout(3000) });
+        if (sRes.ok) {
+          const sText = await sRes.text();
+          const match = sText.match(/client_id[:=]"([a-zA-Z0-9]{32})"/);
+          if (match && match[1]) {
+            cachedScClientId = match[1];
+            scClientIdFetchedAt = now;
+            return cachedScClientId;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to scrape SoundCloud client_id:', e);
+  }
+  return cachedScClientId || 'qLcgHhXgeEFFaSolTB9I71LBsqncsD93';
+}
+
+async function searchSoundCloudOfficialTracks(query: string): Promise<any[]> {
+  try {
+    let clientId = await getSoundCloudClientId();
+    let url = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&client_id=${clientId}&limit=25`;
+    let res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+
+    if (res.status === 401) {
+      scClientIdFetchedAt = 0;
+      clientId = await getSoundCloudClientId();
+      url = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&client_id=${clientId}&limit=25`;
+      res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    }
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    const tracks: any[] = [];
+    const seen = new Set<string>();
+
+    for (const t of (data.collection || [])) {
+      if (!t.id || !t.title) continue;
+      const cleanT = cleanText(t.title);
+      const artistName = cleanText(t.publisher_metadata?.artist || t.user?.username || 'Verified Artist');
+      const albumName = cleanText(t.publisher_metadata?.album_title || 'SoundCloud Master');
+
+      if (!isOfficialPublisherTrack({ title: cleanT, artist: artistName, album: albumName }, query)) {
+        continue;
+      }
+
+      const trans = t.media?.transcodings?.find((x: any) => x.preset === 'aac_160k' || x.preset === 'mp3_0_1') || t.media?.transcodings?.[0];
+      if (!trans || !trans.url) continue;
+
+      const key = `${cleanT.toLowerCase()}:::${artistName.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const rawCover = t.artwork_url || t.user?.avatar_url || '';
+      const cover = rawCover ? rawCover.replace('-large', '-t500x500').replace('-badge', '-t500x500') : '';
+      const streamUrl = `/api/soundcloud/stream?transcoding=${encodeURIComponent(trans.url)}`;
+
+      tracks.push({
+        id: 'sc_' + t.id,
+        title: cleanT,
+        artist: artistName,
+        album: albumName,
+        coverUrl: cover || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80',
+        streamUrl,
+        previewUrl: streamUrl,
+        duration: t.full_duration || t.duration || 0,
+        source: 'soundcloud'
+      });
+    }
+
+    return tracks;
+  } catch (err) {
+    console.error('SoundCloud search error:', err);
+    return [];
+  }
+}
+
+// Gaana streaming provider integration for official catalog metadata and direct 320kbps MP3 streams
+async function searchGaanaOfficialTracks(query: string): Promise<any[]> {
+  try {
+    const searchUrl = `https://gaana.com/search/${encodeURIComponent(query)}`;
+    const res = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
+      signal: AbortSignal.timeout(4000)
+    });
+
+    if (!res.ok) return [];
+    const html = await res.text();
+    const tracks: any[] = [];
+    const seen = new Set<string>();
+
+    const scriptMatch = html.match(/<script id="preloaded-state"[^>]*>([\s\S]*?)<\/script>/);
+    let stateData: any = null;
+
+    if (scriptMatch && scriptMatch[1]) {
+      try {
+        const jsonStr = scriptMatch[1].replace(/^window\.__PRELOADED_STATE__\s*=\s*/, '').replace(/;?\s*$/, '');
+        stateData = JSON.parse(jsonStr);
+      } catch (e) {}
+    }
+
+    let rawTracks: any[] = [];
+    if (stateData) {
+      const searchObj = stateData.search || stateData.searchResults || stateData.entities || {};
+      rawTracks = searchObj.tracks || searchObj.songs || searchObj.searchResults?.tracks || [];
+      if (!rawTracks.length && searchObj.track) {
+        rawTracks = searchObj.track;
+      }
+    }
+
+    if (!rawTracks.length) {
+      const trackMatches = [...html.matchAll(/"track_title":"([^"]+)","track_id":"([^"]+)","artist":"([^"]+)"/g)];
+      for (const m of trackMatches) {
+        rawTracks.push({
+          track_title: m[1],
+          track_id: m[2],
+          artist: m[3]
+        });
+      }
+    }
+
+    for (const t of rawTracks) {
+      const rawTitle = t.track_title || t.title || t.name || t.song_title;
+      if (!rawTitle) continue;
+
+      const cleanT = cleanText(rawTitle);
+      const artistName = cleanText(t.artist || t.artist_name || t.singers || t.artists?.[0]?.name || 'Gaana Official Artist');
+      const albumName = cleanText(t.album_title || t.album || 'Gaana Official Master');
+
+      if (!isOfficialPublisherTrack({ title: cleanT, artist: artistName, album: albumName }, query)) {
+        continue;
+      }
+
+      const key = `${cleanT.toLowerCase()}:::${artistName.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      let coverUrl = t.artwork || t.atw || t.artwork_large || t.artwork_medium || t.image || '';
+      if (coverUrl && !coverUrl.startsWith('http')) {
+        coverUrl = `https://a10.gaanacdn.com/images/${coverUrl}`;
+      }
+      if (!coverUrl) {
+        coverUrl = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
+      } else {
+        coverUrl = coverUrl.replace(/175x175\.jpg|50x50\.jpg/, '500x500.jpg');
+      }
+
+      let streamUrl = decryptMediaUrl(t.encrypted_media_url || t.high_stream_url || t.media_url);
+
+      tracks.push({
+        id: 'gaana_' + (t.track_id || t.id || Math.random().toString(36).substring(2, 9)),
+        title: cleanT,
+        artist: artistName,
+        album: albumName,
+        coverUrl,
+        streamUrl: streamUrl || '',
+        previewUrl: streamUrl || '',
+        duration: (Number(t.duration) || 210) * 1000,
+        source: 'gaana'
+      });
+    }
+
+    return tracks;
+  } catch (err) {
+    console.error('Gaana search error:', err);
+    return [];
+  }
+}
+
 export const app = express();
 app.use(express.json());
 
@@ -198,6 +478,39 @@ app.use((req, res, next) => {
 // Health check for Vercel, Cloud Run, and monitoring
 app.get(['/api/health', '/health', '/api', '/'], (req, res) => {
   res.status(200).json({ status: 'ok', service: 'Aura Music API' });
+});
+
+// SoundCloud stream resolver endpoint (redirects 302 to stream URL)
+app.get(['/api/soundcloud/stream', '/soundcloud/stream'], async (req, res) => {
+  try {
+    const transcoding = req.query.transcoding as string;
+    if (!transcoding) {
+      return res.status(400).json({ error: 'Transcoding URL is required' });
+    }
+
+    let clientId = await getSoundCloudClientId();
+    let streamRes = await fetch(`${transcoding}?client_id=${clientId}`, { signal: AbortSignal.timeout(4000) });
+
+    if (streamRes.status === 401) {
+      scClientIdFetchedAt = 0;
+      clientId = await getSoundCloudClientId();
+      streamRes = await fetch(`${transcoding}?client_id=${clientId}`, { signal: AbortSignal.timeout(4000) });
+    }
+
+    if (!streamRes.ok) {
+      return res.status(streamRes.status).json({ error: 'Failed to resolve stream' });
+    }
+
+    const data = await streamRes.json();
+    if (!data.url) {
+      return res.status(404).json({ error: 'Stream URL not found' });
+    }
+
+    res.redirect(302, data.url);
+  } catch (err) {
+    console.error('SoundCloud stream error:', err);
+    res.status(500).json({ error: 'Failed to stream track' });
+  }
 });
 
 // In-memory cache for JioSaavn charts
@@ -487,6 +800,26 @@ const FEATURED_ARTISTS = [
     genre: 'Southern Hip-Hop / Rap',
     bio: 'Global breakout rap sensation behind the viral anthem Big Dawgs.',
     verified: true
+  },
+  {
+    id: 'audius_artist_skrillex',
+    name: 'Skrillex',
+    avatarUrl: 'https://images.unsplash.com/photo-1571266028243-3716f02d2d2e?w=500&auto=format&fit=crop&q=80',
+    bannerUrl: 'https://images.unsplash.com/photo-1571266028243-3716f02d2d2e?w=1200&auto=format&fit=crop&q=80',
+    monthlyListeners: '392K+ on Audius',
+    genre: 'Electronic / Bass Music',
+    bio: 'Multi-Grammy winning electronic pioneer Sonny Moore, known as Skrillex, behind Bangarang, Scary Monsters and Nice Sprites, and Kliptown Empyrean.',
+    verified: true
+  },
+  {
+    id: 'audius_artist_deadmau5',
+    name: 'deadmau5',
+    avatarUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
+    bannerUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1200&auto=format&fit=crop&q=80',
+    monthlyListeners: '450K+ on Audius',
+    genre: 'Progressive House / Electronic',
+    bio: 'Joel Zimmerman, known as deadmau5, legendary Canadian electronic producer behind Ghosts n Stuff, Strobe, and Raise Your Weapon.',
+    verified: true
   }
 ];
 
@@ -703,16 +1036,46 @@ app.get(['/api/artist/:id', '/artist/:id'], async (req, res) => {
 
     if (!hasRealTracks || popularTracks.length < 8) {
       try {
-        const officialYtTracks = await searchYouTubeOfficialTracks(artistObj.name, artistObj.name);
-        for (const t of officialYtTracks) {
+        const [audiusOfficial, scOfficial, gaanaOfficial, officialYtTracks] = await Promise.all([
+          searchAudiusOfficialTracks(artistObj.name).catch(() => []),
+          searchSoundCloudOfficialTracks(artistObj.name).catch(() => []),
+          searchGaanaOfficialTracks(artistObj.name).catch(() => []),
+          searchYouTubeOfficialTracks(artistObj.name, artistObj.name).catch(() => [])
+        ]);
+
+        for (const t of audiusOfficial) {
           const key = t.title.toLowerCase().trim();
           if (!seenTitles.has(key)) {
             seenTitles.add(key);
             popularTracks.unshift(t);
           }
         }
-      } catch (ytErr) {
-        console.error('Official YouTube tracks fallback error:', ytErr);
+
+        for (const t of scOfficial) {
+          const key = t.title.toLowerCase().trim();
+          if (!seenTitles.has(key)) {
+            seenTitles.add(key);
+            popularTracks.unshift(t);
+          }
+        }
+
+        for (const t of gaanaOfficial) {
+          const key = t.title.toLowerCase().trim();
+          if (!seenTitles.has(key)) {
+            seenTitles.add(key);
+            popularTracks.unshift(t);
+          }
+        }
+
+        for (const t of officialYtTracks) {
+          const key = t.title.toLowerCase().trim();
+          if (!seenTitles.has(key)) {
+            seenTitles.add(key);
+            popularTracks.push(t);
+          }
+        }
+      } catch (fallbackErr) {
+        console.error('Artist catalog fallback error:', fallbackErr);
       }
     }
 
@@ -844,7 +1207,7 @@ app.get(['/api/search', '/search'], async (req, res) => {
 
     try {
       const pages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      const [pageResults, albumSearchRes, playlistSearchRes, ytTracks] = await Promise.all([
+      const [pageResults, albumSearchRes, playlistSearchRes, audiusTracks, scTracks, gaanaTracks, ytTracks] = await Promise.all([
         Promise.all(
           pages.map(p =>
             fetch(`https://www.jiosaavn.com/api.php?__call=search.getResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=50&p=${p}`)
@@ -858,13 +1221,16 @@ app.get(['/api/search', '/search'], async (req, res) => {
         fetch(`https://www.jiosaavn.com/api.php?__call=search.getPlaylistResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=4&p=1`)
           .then(r => r.json())
           .catch(() => ({})),
+        searchAudiusOfficialTracks(query).catch(() => []),
+        searchSoundCloudOfficialTracks(query).catch(() => []),
+        searchGaanaOfficialTracks(query).catch(() => []),
         searchYouTubeOfficialTracks(query).catch(() => [])
       ]);
 
       const combinedSaavnSongs = pageResults
         .flatMap(d => d.results || [])
         .map(mapJioSaavnSong)
-        .filter((t: any) => Boolean(t.streamUrl) && !isUnofficialOrRemix(t.title, t.artist, t.album));
+        .filter((t: any) => Boolean(t.streamUrl) && isOfficialPublisherTrack(t, query));
 
       for (const t of combinedSaavnSongs) {
         const cleanT = cleanSongTitle(t.title, t.artist);
@@ -890,7 +1256,7 @@ app.get(['/api/search', '/search'], async (req, res) => {
         for (const albData of albumDetailBatches) {
           const albTracks = (albData.list || albData.songs || [])
             .map(mapJioSaavnSong)
-            .filter((t: any) => Boolean(t.streamUrl) && !isUnofficialOrRemix(t.title, t.artist, t.album));
+            .filter((t: any) => Boolean(t.streamUrl) && isOfficialPublisherTrack(t, query));
 
           for (const t of albTracks) {
             const cleanT = cleanSongTitle(t.title, t.artist);
@@ -919,7 +1285,7 @@ app.get(['/api/search', '/search'], async (req, res) => {
         for (const plData of playlistDetailBatches) {
           const plTracks = (plData.list || [])
             .map(mapJioSaavnSong)
-            .filter((t: any) => Boolean(t.streamUrl) && !isUnofficialOrRemix(t.title, t.artist, t.album));
+            .filter((t: any) => Boolean(t.streamUrl) && isOfficialPublisherTrack(t, query));
 
           for (const t of plTracks) {
             const cleanT = cleanSongTitle(t.title, t.artist);
@@ -931,6 +1297,42 @@ app.get(['/api/search', '/search'], async (req, res) => {
               allTracks.push({ ...t, title: cleanT });
             }
           }
+        }
+      }
+
+      // Merge direct streaming SoundCloud tracks
+      for (const t of (scTracks || [])) {
+        const titleKey = t.title.toLowerCase().trim();
+        const artistKey = t.artist.toLowerCase().trim();
+        const compositeKey = `${titleKey}:::${artistKey}`;
+        if (!seenKeys.has(compositeKey) && !seenKeys.has(t.id)) {
+          seenKeys.add(compositeKey);
+          seenKeys.add(t.id);
+          allTracks.push(t);
+        }
+      }
+
+      // Merge direct 320kbps MP3 Gaana streaming tracks
+      for (const t of (gaanaTracks || [])) {
+        const titleKey = t.title.toLowerCase().trim();
+        const artistKey = t.artist.toLowerCase().trim();
+        const compositeKey = `${titleKey}:::${artistKey}`;
+        if (!seenKeys.has(compositeKey) && !seenKeys.has(t.id)) {
+          seenKeys.add(compositeKey);
+          seenKeys.add(t.id);
+          allTracks.push(t);
+        }
+      }
+
+      // Merge direct 320kbps MP3 Audius streaming tracks
+      for (const t of (audiusTracks || [])) {
+        const titleKey = t.title.toLowerCase().trim();
+        const artistKey = t.artist.toLowerCase().trim();
+        const compositeKey = `${titleKey}:::${artistKey}`;
+        if (!seenKeys.has(compositeKey) && !seenKeys.has(t.id)) {
+          seenKeys.add(compositeKey);
+          seenKeys.add(t.id);
+          allTracks.push(t);
         }
       }
 

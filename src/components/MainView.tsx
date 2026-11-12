@@ -15,7 +15,7 @@ interface MainViewProps {
   tracks: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
-  onPlayTrack: (track: Track, contextPlaylist?: Playlist) => void;
+  onPlayTrack: (track: Track, contextPlaylist?: Playlist, contextTrackList?: Track[]) => void;
   onSearch: (query: string) => void;
   isLoading: boolean;
   searchQueryProp?: string;
@@ -333,7 +333,7 @@ const MainView = forwardRef(({
                         <div className="flex flex-col md:flex-row gap-6">
                           {/* Hero Card */}
                           <div className="bg-[#181818] p-5 rounded-lg w-full md:w-2/5 hover:bg-[#282828] transition duration-300 group relative cursor-pointer shadow-lg shadow-black/40"
-                               onClick={() => onPlayTrack(topTrack)}>
+                               onClick={() => onPlayTrack(topTrack, undefined, tracks)}>
                             <img src={topTrack.coverUrl} alt={topTrack.title} className="w-24 h-24 rounded-full md:rounded-md mb-5 shadow-lg object-cover" />
                             <h1 className="text-3xl font-bold text-white mb-1 truncate">{topTrack.title}</h1>
                             <div className="flex items-center gap-2">
@@ -356,7 +356,7 @@ const MainView = forwardRef(({
                               {tracks.slice(1, 5).map((track, idx) => {
                                  const isActive = currentTrack?.id === track.id;
                                  return (
-                                   <div key={`${track.id}-${idx}`} onClick={() => onPlayTrack(track)}
+                                   <div key={`${track.id}-${idx}`} onClick={() => onPlayTrack(track, undefined, tracks)}
                                         className={`group flex items-center gap-4 p-2 rounded-md hover:bg-white/10 transition cursor-pointer ${isActive ? 'bg-white/10' : ''}`}>
                                      <div className="relative w-10 h-10 flex-shrink-0">
                                        <img src={track.coverUrl} className="w-full h-full rounded shadow object-cover" alt={track.title} />
@@ -367,8 +367,12 @@ const MainView = forwardRef(({
                                      <div className="flex-1 overflow-hidden flex flex-col justify-center">
                                        <div className="flex items-center gap-1.5">
                                          <div className={`text-sm font-semibold truncate ${isActive ? 'text-[#1db954]' : 'text-white'}`}>{track.title}</div>
-                                         {track.streamUrl && (
-                                           <span className="text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 px-1 rounded flex-shrink-0">320k</span>
+                                         {track.streamUrl ? (
+                                           <span className="text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 px-1 rounded flex-shrink-0">
+                                             {track.source === 'soundcloud' ? 'SoundCloud' : track.source === 'gaana' ? 'Gaana' : track.source === 'audius' ? 'Audius 320k' : '320k'}
+                                           </span>
+                                         ) : (
+                                           <span className="text-[9px] font-semibold bg-purple-500/10 text-purple-400 px-1 rounded flex-shrink-0">Official Master</span>
                                          )}
                                        </div>
                                        <div className="text-xs text-gray-400 truncate hover:underline hover:text-white transition">{track.artist}</div>
@@ -410,7 +414,7 @@ const MainView = forwardRef(({
                               return (
                                 <div 
                                   key={`${track.id}-${index}`}
-                                  onClick={() => onPlayTrack(track)}
+                                  onClick={() => onPlayTrack(track, undefined, tracks)}
                                   className={`group grid grid-cols-[16px_1fr_1fr_minmax(120px,1fr)] gap-4 px-4 py-2 items-center rounded-md cursor-pointer hover:bg-white/10 transition-colors ${isActive ? 'bg-white/10' : ''}`}
                                 >
                                   <div className="text-gray-400 text-sm relative flex justify-center w-4">
@@ -437,8 +441,12 @@ const MainView = forwardRef(({
                                     <div className="truncate">
                                       <div className="flex items-center gap-1.5">
                                         <div className={`text-sm font-medium truncate ${isActive ? 'text-[#1db954]' : 'text-white'}`}>{track.title}</div>
-                                        {track.streamUrl && (
-                                          <span className="text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 px-1 rounded flex-shrink-0">320k</span>
+                                        {track.streamUrl ? (
+                                          <span className="text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 px-1 rounded flex-shrink-0">
+                                            {track.source === 'soundcloud' ? 'SoundCloud' : track.source === 'gaana' ? 'Gaana' : track.source === 'audius' ? 'Audius 320k' : '320k'}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[9px] font-semibold bg-purple-500/10 text-purple-400 px-1 rounded flex-shrink-0">Official Master</span>
                                         )}
                                       </div>
                                       <div className="text-xs text-gray-400 truncate hover:underline hover:text-white transition">{track.artist}</div>
