@@ -1,6 +1,15 @@
 export const searchTracks = async (term: string): Promise<any[]> => {
   try {
     const res = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
+    if (!res.ok) {
+      console.warn(`Search request failed: HTTP ${res.status}`);
+      return [];
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      console.warn('Search returned non-JSON response');
+      return [];
+    }
     const data = await res.json();
     if (!Array.isArray(data)) return [];
     
@@ -25,6 +34,9 @@ export const searchTracks = async (term: string): Promise<any[]> => {
 export const getCharts = async (): Promise<any[]> => {
   try {
     const res = await fetch('/api/charts');
+    if (!res.ok) return [];
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   } catch (error) {
@@ -36,6 +48,9 @@ export const getCharts = async (): Promise<any[]> => {
 export const getCanvasVideo = async (title: string, artist: string): Promise<string | null> => {
   try {
     const res = await fetch(`/api/canvas?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
+    if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
     const data = await res.json();
     return data?.videoId || null;
   } catch (error) {
@@ -47,6 +62,9 @@ export const getCanvasVideo = async (title: string, artist: string): Promise<str
 export const getViralSongs = async (): Promise<any[]> => {
   try {
     const res = await fetch('/api/viral');
+    if (!res.ok) return [];
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   } catch (error) {
@@ -58,6 +76,9 @@ export const getViralSongs = async (): Promise<any[]> => {
 export const getArtists = async (): Promise<any[]> => {
   try {
     const res = await fetch('/api/artists');
+    if (!res.ok) return [];
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   } catch (error) {
@@ -69,6 +90,9 @@ export const getArtists = async (): Promise<any[]> => {
 export const searchArtists = async (query: string): Promise<any[]> => {
   try {
     const res = await fetch(`/api/artists/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   } catch (error) {
@@ -81,6 +105,8 @@ export const getArtistDetails = async (id: string): Promise<any | null> => {
   try {
     const res = await fetch(`/api/artist/${id}`);
     if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
     return await res.json();
   } catch (error) {
     console.error('Error fetching artist details:', error);
