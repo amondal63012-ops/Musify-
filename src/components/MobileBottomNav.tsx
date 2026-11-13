@@ -49,7 +49,7 @@ export default function MobileBottomNav({
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-xl border-t border-white/10 h-[62px] flex items-center justify-around px-2 select-none md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-xl border-t border-white/10 min-h-[62px] pb-safe flex items-center justify-around px-2 select-none md:hidden">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = currentView === tab.id || (tab.id === 'artists' && currentView === 'artist');

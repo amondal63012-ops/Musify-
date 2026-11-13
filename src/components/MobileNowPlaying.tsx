@@ -18,11 +18,11 @@ import {
   Maximize2, 
   Minimize2, 
   Sparkles,
-  Clapperboard,
   Volume2
 } from 'lucide-react';
 import { Track, RepeatMode } from '../types';
-import { getCanvasVideo } from '../api';
+import { tryFetchBackendJson } from '../lib/apiConfig';
+import { directFetchLyrics } from '../lib/directMusicProvider';
 
 interface MobileNowPlayingProps {
   currentTrack: Track | null;
@@ -63,8 +63,6 @@ export default function MobileNowPlaying({
   const [syncedLines, setSyncedLines] = useState<LrcLine[]>([]);
   const [plainLyrics, setPlainLyrics] = useState('');
   const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
-  const [canvasVideoId, setCanvasVideoId] = useState<string | null>(null);
-  const [showCanvasVideo, setShowCanvasVideo] = useState(true);
   const [isTimerModalOpen, setIsTimerModalOpen] = useState(false);
   const [activeTimerMinutes, setActiveTimerMinutes] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -91,35 +89,10 @@ export default function MobileNowPlaying({
     }
   }, [currentTrack]);
 
-  // Fetch canvas video for the track
-  useEffect(() => {
-    if (!currentTrack) return;
-    let isCancelled = false;
-
-    // Reset video state while fetching
-    setCanvasVideoId(null);
-
-    const loadCanvas = async () => {
-      // If track has a youtubeId, use it; otherwise search for official visualizer / music video
-      if (currentTrack.youtubeId) {
-        if (!isCancelled) setCanvasVideoId(currentTrack.youtubeId);
-        return;
-      }
-
-      const vidId = await getCanvasVideo(currentTrack.title, currentTrack.artist);
-      if (!isCancelled && vidId) {
-        setCanvasVideoId(vidId);
-      }
-    };
-
-    loadCanvas();
-    return () => { isCancelled = true; };
-  }, [currentTrack?.title, currentTrack?.artist]);
-
-  // Ambient fluid canvas animation fallback when video is off or loading
+  // Ambient fluid canvas animation
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || (showCanvasVideo && canvasVideoId)) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -156,7 +129,7 @@ export default function MobileNowPlaying({
 
     render();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [showCanvasVideo, canvasVideoId]);
+  }, [currentTrack?.id]);
 
   // Fetch lyrics
   useEffect(() => {
@@ -165,15 +138,18 @@ export default function MobileNowPlaying({
 
     const fetchLyrics = async () => {
       try {
-        const res = await fetch('/api/lyrics', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: currentTrack.title, artist: currentTrack.artist })
-        });
-        const data = await res.json();
+        const backendData = await tryFetchBackendJson<{ syncedLyrics?: string | null; plainLyrics?: string | null }>(
+          '/api/lyrics',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: currentTrack.title, artist: currentTrack.artist }),
+          }
+        );
+        const data = backendData ?? (await directFetchLyrics(currentTrack.title, currentTrack.artist));
         if (isCancelled) return;
 
-        if (data.syncedLyrics) {
+        if (data?.syncedLyrics) {
           const lines = data.syncedLyrics.split('\n');
           const parsed: LrcLine[] = [];
           const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
@@ -190,7 +166,7 @@ export default function MobileNowPlaying({
           });
           setSyncedLines(parsed);
           setPlainLyrics('');
-        } else if (data.plainLyrics) {
+        } else if (data?.plainLyrics) {
           setPlainLyrics(data.plainLyrics);
           setSyncedLines([]);
         } else {
@@ -293,32 +269,35 @@ export default function MobileNowPlaying({
     showToast('Sleep timer turned off');
   };
 
+  // Close fullscreen sheet cleanly on Android hardware back gesture/button
+  useEffect(() => {
+    const handleBack = (e: Event) => {
+      e.preventDefault();
+      if (isTimerModalOpen) {
+        setIsTimerModalOpen(false);
+      } else {
+        onClose();
+      }
+    };
+    window.addEventListener('auraAndroidBack', handleBack);
+    return () => window.removeEventListener('auraAndroidBack', handleBack);
+  }, [isTimerModalOpen, onClose]);
+
   if (!currentTrack) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#121212] flex flex-col justify-between overflow-hidden select-none animate-in fade-in slide-in-from-bottom duration-300">
+    <div className="fixed inset-0 z-50 bg-[#121212] flex flex-col justify-between overflow-hidden select-none pt-safe pb-safe animate-in fade-in slide-in-from-bottom duration-300">
       
       {/* 1. SPOTIFY-STYLE BACKGROUND CANVAS / VIDEO (Full-bleed vertical 9:16 portrait video) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none select-none">
-        {/* Ambient blurred backdrop to eliminate any black flash while video loads */}
+        {/* Ambient blurred backdrop + animated fluid canvas */}
         <img 
           src={currentTrack.coverUrl} 
           alt="" 
           className="absolute inset-0 w-full h-full object-cover filter blur-3xl scale-125 opacity-60 pointer-events-none" 
         />
 
-        {showCanvasVideo && canvasVideoId ? (
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-            <iframe
-              src={`https://www.youtube-nocookie.com/embed/${canvasVideoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${canvasVideoId}&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1`}
-              title="Spotify Canvas Video"
-              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[185vh] min-w-full h-full min-h-[100vh] object-cover pointer-events-none scale-105 opacity-90"
-              allow="autoplay; encrypted-media"
-            />
-          </div>
-        ) : (
-          <canvas ref={canvasRef} className="w-full h-full object-cover pointer-events-none" />
-        )}
+        <canvas ref={canvasRef} className="w-full h-full object-cover pointer-events-none opacity-65" />
 
         {/* Cinematic Vignette Overlay matching Spotify Mobile */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/85 pointer-events-none" />
@@ -352,14 +331,6 @@ export default function MobileNowPlaying({
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Toggle Canvas Video Button */}
-          <button 
-            onClick={() => setShowCanvasVideo(!showCanvasVideo)}
-            className={`w-9 h-9 rounded-full flex items-center justify-center transition ${showCanvasVideo && canvasVideoId ? 'text-[#1db954] bg-white/10' : 'text-white/60 hover:text-white'}`}
-            title="Toggle Background Canvas Video"
-          >
-            <Clapperboard className="w-4 h-4" />
-          </button>
           <button 
             onClick={handleShare}
             className="w-9 h-9 rounded-full flex items-center justify-center text-white/80 hover:text-white"
@@ -389,6 +360,7 @@ export default function MobileNowPlaying({
             <img 
               src={currentTrack.coverUrl} 
               alt={currentTrack.title}
+              referrerPolicy="no-referrer"
               className="w-13 h-13 rounded-lg object-cover shadow-2xl border border-white/10 flex-shrink-0"
             />
             <div className="overflow-hidden flex-1">
@@ -424,7 +396,7 @@ export default function MobileNowPlaying({
             onChange={handleSeek}
             className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
           />
-          <div className="flex justify-between text-[11px] font-medium text-white/60 px-0.5">
+          <div className="flex justify-between text-[11px] font-medium text-white/60 px-0.5 tabular-nums">
             <span>{formatTime(progress)}</span>
             <span>{formatTime(duration)}</span>
           </div>
@@ -488,9 +460,21 @@ export default function MobileNowPlaying({
         {/* Utility Icon Row (Cast / Device, Share, Queue / Repeat) */}
         <div className="flex items-center justify-between text-white/60 px-2 pt-1 text-xs">
           <div className="flex items-center gap-1.5 text-white/70">
-            <MonitorSpeaker className={`w-4 h-4 ${currentTrack.streamUrl ? 'text-[#1db954]' : 'text-purple-400'}`} />
-            <span className={`text-[11px] font-semibold ${currentTrack.streamUrl ? 'text-[#1db954]' : 'text-purple-400'}`}>
-              {currentTrack.source === 'soundcloud' ? 'SoundCloud Stream • Background Active' : currentTrack.source === 'gaana' ? 'Gaana 320k • Background Active' : currentTrack.source === 'audius' ? 'Audius 320k • Background Active' : currentTrack.streamUrl ? '320kbps Direct Background Audio' : 'Official Master • Background PiP Ready'}
+            <MonitorSpeaker className="w-4 h-4 text-[#1db954]" />
+            <span className="text-[11px] font-semibold text-[#1db954]">
+              {currentTrack.source === 'soundcloud'
+                ? 'SoundCloud · Background Active'
+                : currentTrack.source === 'gaana'
+                ? 'Gaana HD · Background Active'
+                : currentTrack.source === 'audius'
+                ? 'Audius 320k · Background Active'
+                : currentTrack.source === 'jamendo'
+                ? 'Jamendo Official · Background Active'
+                : currentTrack.source === 'archive'
+                ? 'Archive Official · Background Active'
+                : currentTrack.source === 'local'
+                ? 'Local Vault · Offline Active'
+                : '320kbps Background Audio Active'}
             </span>
           </div>
 

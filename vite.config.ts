@@ -74,6 +74,34 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         manifest: false, // Managed manually via public/manifest.json
+        includeAssets: [
+          'icon.svg',
+          'apple-touch-icon.png',
+          'pwa-192x192.png',
+          'pwa-512x512.png',
+          'pwa-maskable-512x512.png',
+        ],
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          navigateFallbackDenylist: [/^\/api\//],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-cache',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+          ],
+        },
         devOptions: {
           enabled: true
         }

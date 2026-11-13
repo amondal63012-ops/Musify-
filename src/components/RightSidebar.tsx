@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Play, MoreHorizontal, Mic2, Languages, Loader2 } from 'lucide-react';
 import { Track } from '../types';
+import { tryFetchBackendJson } from '../lib/apiConfig';
+import { directFetchLyrics } from '../lib/directMusicProvider';
 
 interface RightSidebarProps {
   view: 'queue' | 'lyrics';
@@ -93,26 +95,29 @@ export default function RightSidebar({ view, currentTrack, queue, onClose, onPla
     setPlainLyrics('');
     setSyncedLines([]);
     try {
-      const res = await fetch('/api/lyrics', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: track.title,
-          artist: track.artist,
-          targetLanguage: lang,
-        })
-      });
-      const data = await res.json();
-      
-      if (data.syncedLyrics) {
+      const backendData = await tryFetchBackendJson<{ syncedLyrics?: string | null; plainLyrics?: string | null }>(
+        '/api/lyrics',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: track.title,
+            artist: track.artist,
+            targetLanguage: lang,
+          }),
+        }
+      );
+      const data = backendData ?? (await directFetchLyrics(track.title, track.artist));
+
+      if (data?.syncedLyrics) {
         setSyncedLines(parseLrc(data.syncedLyrics));
-      } else if (data.plainLyrics) {
+      } else if (data?.plainLyrics) {
         setPlainLyrics(data.plainLyrics);
       } else {
-        setPlainLyrics("Lyrics unavailable");
+        setPlainLyrics('Lyrics unavailable');
       }
-    } catch (error) {
-      setPlainLyrics("Lyrics unavailable");
+    } catch {
+      setPlainLyrics('Lyrics unavailable');
     } finally {
       setLoadingLyrics(false);
     }

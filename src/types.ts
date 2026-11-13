@@ -7,11 +7,12 @@ export interface Track {
   previewUrl: string;
   streamUrl?: string;
   duration: number;
-  youtubeId?: string;
-  canvasVideoId?: string;
-  source?: 'jiosaavn' | 'youtube' | 'audius' | 'soundcloud' | 'gaana';
+  label?: string;
+  source?: 'jiosaavn' | 'audius' | 'soundcloud' | 'gaana' | 'deezer' | 'jamendo' | 'archive' | 'local';
   isViral?: boolean;
   viralRank?: number;
+  isOfflineSaved?: boolean;
+  addedAt?: number;
 }
 
 export interface Artist {

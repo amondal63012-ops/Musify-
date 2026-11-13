@@ -72,7 +72,7 @@ export default function ArtistView({
     <div className="pb-36 select-none relative animate-in fade-in duration-300">
       
       {/* Back Button */}
-      <div className="sticky top-0 z-30 px-4 py-3 bg-gradient-to-b from-black/80 to-transparent flex items-center gap-3">
+      <div className="sticky top-0 z-30 px-4 py-3 pt-safe bg-gradient-to-b from-black/80 to-transparent flex items-center gap-3">
         <button 
           onClick={onBack}
           className="w-9 h-9 rounded-full bg-black/60 backdrop-blur flex items-center justify-center text-white active:scale-95 transition"

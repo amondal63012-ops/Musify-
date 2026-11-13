@@ -73,11 +73,11 @@ export default function HomeView({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">{getGreeting()}</h2>
-          <p className="text-xs text-white/50 mt-0.5">High-fidelity 320kbps streams with video canvas</p>
+          <p className="text-xs text-white/60 mt-0.5">Official publisher catalogs with continuous background &amp; lock-screen audio</p>
         </div>
-        <div className="hidden sm:flex items-center gap-2 bg-[#1db954]/10 border border-[#1db954]/30 px-3 py-1.5 rounded-full text-xs text-[#1db954] font-medium">
-          <Radio className="w-3.5 h-3.5 animate-pulse text-[#1db954]" />
-          <span>Uninterrupted Background & Lock Screen Playback</span>
+        <div className="hidden sm:flex items-center gap-2 text-xs text-[#1db954] font-semibold whitespace-nowrap shrink-0">
+          <Radio className="w-3.5 h-3.5 text-[#1db954]" />
+          <span>Background &amp; Lock Screen Audio Active</span>
         </div>
       </div>
       
@@ -98,7 +98,7 @@ export default function HomeView({
         ))}
       </div>
 
-      {/* 1. VIRAL HITS SECTION (Requested by user) */}
+      {/* 1. VIRAL HITS SECTION */}
       <div className="mb-9">
         <div className="flex items-center justify-between mb-3.5">
           <div className="flex items-center gap-2">
@@ -106,19 +106,16 @@ export default function HomeView({
               <Flame className="w-4 h-4 fill-current" />
             </div>
             <div>
-              <h2 className="text-lg sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-                Viral Hits & Trending
-                <span className="text-[10px] bg-rose-500 text-white font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                  HOT
-                </span>
+              <h2 className="text-lg sm:text-2xl font-bold text-white tracking-tight">
+                Viral Hits &amp; Trending
               </h2>
-              <p className="text-[11px] text-white/50">Top chart-busters trending across social media & streaming</p>
+              <p className="text-[11px] text-white/50">Verified global publishers &amp; trending releases</p>
             </div>
           </div>
           {onViewAllViral && (
             <button 
               onClick={onViewAllViral}
-              className="text-xs font-bold text-white/60 hover:text-white flex items-center gap-0.5"
+              className="text-xs font-bold text-white/60 hover:text-white flex items-center gap-0.5 cursor-pointer"
             >
               See all <ChevronRight className="w-3.5 h-3.5" />
             </button>
@@ -142,11 +139,12 @@ export default function HomeView({
                 <div className="relative mb-2.5 w-full aspect-square">
                   <img 
                     src={song.coverUrl} 
-                    alt={song.title} 
+                    alt={song.title}
+                    referrerPolicy="no-referrer"
                     className="w-full h-full object-cover rounded-lg shadow-[0_8px_20px_rgba(0,0,0,0.6)]" 
                   />
-                  {/* Viral Rank Badge */}
-                  <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md text-white text-[10px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10">
+                  {/* Viral Rank Indicator */}
+                  <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md text-white text-[10px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 tabular-nums">
                     <TrendingUp className="w-2.5 h-2.5 text-rose-400" />
                     #{idx + 1}
                   </div>
@@ -157,11 +155,6 @@ export default function HomeView({
                 </div>
                 <h3 className="font-bold text-xs sm:text-sm text-white mb-0.5 truncate">{song.title}</h3>
                 <p className="text-[11px] text-white/50 line-clamp-1">{song.artist}</p>
-                <div className="mt-1 flex items-center gap-1">
-                  <span className="text-[9px] bg-[#1db954]/20 text-[#1db954] font-extrabold px-1.5 py-0.2 rounded">
-                    320K HQ
-                  </span>
-                </div>
               </div>
             ))}
           </div>
@@ -242,7 +235,13 @@ export default function HomeView({
             {charts.map((chart, idx) => (
               <div 
                 key={`${chart.id}-${idx}`} 
-                onClick={() => onPlayContext(chart.title)}
+                onClick={() => {
+                  if (chart.tracks && chart.tracks.length > 0 && onPlayTrackDirect) {
+                    onPlayTrackDirect(chart.tracks[0], undefined, chart.tracks);
+                  } else {
+                    onPlayContext(chart.title);
+                  }
+                }}
                 className="w-[145px] sm:w-[170px] md:w-auto flex-shrink-0 bg-[#181818] hover:bg-[#222222] active:bg-[#282828] transition-all p-3 rounded-xl cursor-pointer group relative border border-white/5"
               >
                 <div className="relative mb-3 w-full aspect-square">

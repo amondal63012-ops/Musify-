@@ -1,30 +1,46 @@
+import { resolveApiUrl, tryFetchBackendJson } from './lib/apiConfig';
+import {
+  DIRECT_FEATURED_ARTISTS,
+  directGetArtistDetails,
+  directGetCharts,
+  directGetViralSongs,
+  directResolveFallback,
+  directSearchArtists,
+  directSearchTracks,
+} from './lib/directMusicProvider';
+
+const DEFAULT_COVER =
+  'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
+
+function normalizeTrackList(data: any[]): any[] {
+  return data
+    .filter((item: any) => Boolean(item?.streamUrl))
+    .map((item: any) => {
+      const resolvedStream = resolveApiUrl(item.streamUrl || '');
+      const resolvedPreview = resolveApiUrl(item.streamUrl || item.previewUrl || '');
+      return {
+        id: item.id,
+        title: item.title,
+        artist: item.artist || 'Unknown Artist',
+        album: item.album || 'Single',
+        coverUrl: item.coverUrl || DEFAULT_COVER,
+        previewUrl: resolvedPreview,
+        streamUrl: resolvedStream,
+        duration: item.duration || 0,
+        label: item.label || '',
+        source: item.source || 'jiosaavn',
+      };
+    });
+}
+
 export const searchTracks = async (term: string): Promise<any[]> => {
   try {
-    const res = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
-    if (!res.ok) {
-      console.warn(`Search request failed: HTTP ${res.status}`);
-      return [];
+    const data = await tryFetchBackendJson<any[]>(`/api/search?q=${encodeURIComponent(term)}`);
+    if (Array.isArray(data)) {
+      return normalizeTrackList(data);
     }
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      console.warn('Search returned non-JSON response');
-      return [];
-    }
-    const data = await res.json();
-    if (!Array.isArray(data)) return [];
-    
-    return data.map((item: any) => ({
-      id: item.id,
-      title: item.title,
-      artist: item.artist || 'Unknown Artist',
-      album: item.album || 'Single',
-      coverUrl: item.coverUrl || 'https://via.placeholder.com/300x300.png?text=No+Cover',
-      previewUrl: item.streamUrl || item.previewUrl || '',
-      streamUrl: item.streamUrl || '',
-      duration: item.duration || 0,
-      youtubeId: item.youtubeId,
-      source: item.source || (item.streamUrl ? 'jiosaavn' : 'youtube'),
-    }));
+    const direct = await directSearchTracks(term);
+    return normalizeTrackList(direct);
   } catch (error) {
     console.error('Error fetching tracks:', error);
     return [];
@@ -33,12 +49,14 @@ export const searchTracks = async (term: string): Promise<any[]> => {
 
 export const getCharts = async (): Promise<any[]> => {
   try {
-    const res = await fetch('/api/charts');
-    if (!res.ok) return [];
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    const data = await tryFetchBackendJson<any[]>('/api/charts');
+    const charts = Array.isArray(data) ? data : await directGetCharts();
+    if (!Array.isArray(charts)) return [];
+    return charts.map((chart: any) => ({
+      ...chart,
+      coverUrl: chart.coverUrl || DEFAULT_COVER,
+      tracks: Array.isArray(chart.tracks) ? normalizeTrackList(chart.tracks) : [],
+    }));
   } catch (error) {
     console.error('Error fetching charts:', error);
     return [];
@@ -47,26 +65,20 @@ export const getCharts = async (): Promise<any[]> => {
 
 export const getCanvasVideo = async (title: string, artist: string): Promise<string | null> => {
   try {
-    const res = await fetch(`/api/canvas?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
-    if (!res.ok) return null;
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) return null;
-    const data = await res.json();
+    const data = await tryFetchBackendJson<{ videoId?: string | null }>(
+      `/api/canvas?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`
+    );
     return data?.videoId || null;
-  } catch (error) {
-    console.error('Error fetching canvas video:', error);
+  } catch {
     return null;
   }
 };
 
 export const getViralSongs = async (): Promise<any[]> => {
   try {
-    const res = await fetch('/api/viral');
-    if (!res.ok) return [];
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    const data = await tryFetchBackendJson<any[]>('/api/viral');
+    const viral = Array.isArray(data) ? data : await directGetViralSongs();
+    return Array.isArray(viral) ? normalizeTrackList(viral) : [];
   } catch (error) {
     console.error('Error fetching viral songs:', error);
     return [];
@@ -75,26 +87,19 @@ export const getViralSongs = async (): Promise<any[]> => {
 
 export const getArtists = async (): Promise<any[]> => {
   try {
-    const res = await fetch('/api/artists');
-    if (!res.ok) return [];
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    const data = await tryFetchBackendJson<any[]>('/api/artists');
+    return Array.isArray(data) ? data : DIRECT_FEATURED_ARTISTS;
   } catch (error) {
     console.error('Error fetching artists:', error);
-    return [];
+    return DIRECT_FEATURED_ARTISTS;
   }
 };
 
 export const searchArtists = async (query: string): Promise<any[]> => {
   try {
-    const res = await fetch(`/api/artists/search?q=${encodeURIComponent(query)}`);
-    if (!res.ok) return [];
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    const data = await tryFetchBackendJson<any[]>(`/api/artists/search?q=${encodeURIComponent(query)}`);
+    if (Array.isArray(data)) return data;
+    return await directSearchArtists(query);
   } catch (error) {
     console.error('Error searching artists:', error);
     return [];
@@ -103,13 +108,31 @@ export const searchArtists = async (query: string): Promise<any[]> => {
 
 export const getArtistDetails = async (id: string): Promise<any | null> => {
   try {
-    const res = await fetch(`/api/artist/${id}`);
-    if (!res.ok) return null;
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) return null;
-    return await res.json();
+    const data = await tryFetchBackendJson<any>(`/api/artist/${encodeURIComponent(id)}`);
+    const artistData = data ?? (await directGetArtistDetails(id));
+    if (artistData && Array.isArray(artistData.popularTracks)) {
+      artistData.popularTracks = normalizeTrackList(artistData.popularTracks);
+    }
+    return artistData;
   } catch (error) {
     console.error('Error fetching artist details:', error);
+    return null;
+  }
+};
+
+export const resolveTrackFallback = async (title: string, artist: string): Promise<any | null> => {
+  try {
+    const params = new URLSearchParams({ title, artist });
+    const data = await tryFetchBackendJson<any>(`/api/track/fallback?${params.toString()}`);
+    if (data?.streamUrl) {
+      return {
+        ...data,
+        streamUrl: resolveApiUrl(data.streamUrl),
+        previewUrl: data.previewUrl ? resolveApiUrl(data.previewUrl) : resolveApiUrl(data.streamUrl),
+      };
+    }
+    return await directResolveFallback(title, artist);
+  } catch {
     return null;
   }
 };
