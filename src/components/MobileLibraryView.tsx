@@ -75,8 +75,7 @@ export default function MobileLibraryView({
   };
 
   return (
-    <div className="p-4 sm:p-6 pb-36 text-white min-h-screen">
-      {/* Hidden File Input for Local MP3/FLAC/M4A/WAV Import */}
+    <div className="px-4 sm:px-6 pt-2 pb-36 text-white min-h-screen">
       <input
         ref={fileInputRef}
         type="file"
@@ -86,30 +85,28 @@ export default function MobileLibraryView({
         className="hidden"
       />
 
-      {/* Top Header */}
+      {/* Action Header */}
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-[#1db954] text-black font-bold flex items-center justify-center text-sm shadow">
-            A
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Your Library</h1>
+        <div>
+          <h2 className="hidden md:block text-2xl font-extrabold tracking-tight">Your Library</h2>
+          <p className="text-xs text-white/55">Playlists, liked songs &amp; offline device vault</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-auto">
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
-            className="flex items-center gap-1.5 rounded-full bg-[#242424] hover:bg-[#303030] border border-white/10 px-3 min-h-[38px] text-xs font-semibold text-white transition active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
+            className="flex items-center gap-1.5 rounded-full bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.08] px-3.5 min-h-[38px] text-xs font-semibold text-white transition active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
             title="Import MP3, M4A, FLAC, or WAV files from your device"
           >
-            <Upload className="w-3.5 h-3.5 text-[#1db954]" />
+            <Upload className="w-3.5 h-3.5 text-[#FACC15]" />
             <span>{isImporting ? 'Importing...' : 'Import Audio'}</span>
           </button>
           <button
             onClick={onCreatePlaylist}
-            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 active:scale-95 transition cursor-pointer"
+            className="w-10 h-10 flex items-center justify-center rounded-full bg-[#F43F5E] hover:bg-[#FB7185] text-white active:scale-95 transition cursor-pointer shadow-lg shadow-rose-500/20"
             aria-label="Create playlist"
           >
-            <Plus className="w-6 h-6 text-white" />
+            <Plus className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -118,41 +115,41 @@ export default function MobileLibraryView({
       <div className="flex items-center gap-2 mb-4 overflow-x-auto scrollbar-none pb-1">
         <button
           onClick={() => setFilter('all')}
-          className={`px-3.5 min-h-[34px] rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition cursor-pointer ${
-            filter === 'all' ? 'bg-white text-black' : 'bg-[#282828] text-white hover:bg-[#333]'
+          className={`px-4 min-h-[34px] rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer ${
+            filter === 'all' ? 'bg-[#F43F5E] text-white' : 'bg-[#1D1F27] text-white/75 hover:bg-[#252833]'
           }`}
         >
           All
         </button>
         <button
           onClick={() => setFilter('playlists')}
-          className={`px-3.5 min-h-[34px] rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition cursor-pointer ${
-            filter === 'playlists' ? 'bg-white text-black' : 'bg-[#282828] text-white hover:bg-[#333]'
+          className={`px-4 min-h-[34px] rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer ${
+            filter === 'playlists' ? 'bg-[#F43F5E] text-white' : 'bg-[#1D1F27] text-white/75 hover:bg-[#252833]'
           }`}
         >
           Playlists
         </button>
         <button
           onClick={() => setFilter('offline')}
-          className={`px-3.5 min-h-[34px] rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
-            filter === 'offline' ? 'bg-[#1db954] text-black font-bold' : 'bg-[#282828] text-white hover:bg-[#333]'
+          className={`px-4 min-h-[34px] rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
+            filter === 'offline' ? 'bg-[#FACC15] text-black' : 'bg-[#1D1F27] text-white/75 hover:bg-[#252833]'
           }`}
         >
           <HardDriveDownload className="w-3.5 h-3.5" />
-          <span>Offline &amp; Local ({offlineTracks.length})</span>
+          <span>Offline Vault ({offlineTracks.length})</span>
         </button>
       </div>
 
       {/* Search & Sort row */}
-      <div className="flex items-center justify-between mb-4 text-xs text-[#b3b3b3] gap-2">
-        <div className="flex items-center gap-2 bg-[#181818] px-3 py-2 rounded-lg flex-1 max-w-xs border border-white/5">
-          <Search className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+      <div className="flex items-center justify-between mb-5 text-xs text-white/60 gap-2">
+        <div className="flex items-center gap-2 bg-[#1D1F27] px-3.5 py-2.5 rounded-xl flex-1 max-w-xs border border-white/[0.06]">
+          <Search className="w-3.5 h-3.5 text-white/45 flex-shrink-0" />
           <input
             type="text"
             placeholder="Search library & saved audio"
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
-            className="bg-transparent border-none outline-none text-xs text-white placeholder-gray-500 w-full"
+            className="bg-transparent border-none outline-none text-xs text-white placeholder-white/40 w-full"
           />
         </div>
         <div className="flex items-center gap-1 text-white/60">
@@ -163,16 +160,16 @@ export default function MobileLibraryView({
 
       {/* Offline & Local Audio Vault Section */}
       {filter !== 'playlists' && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2.5">
+        <div className="mb-7">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
-              <HardDriveDownload className="w-4 h-4 text-[#1db954]" />
+              <HardDriveDownload className="w-4 h-4 text-[#FACC15]" />
               <span>Offline &amp; Local Vault</span>
             </h2>
             {offlineTracks.length > 0 && (
               <button
                 onClick={() => onPlayTrack(offlineTracks[0], undefined, offlineTracks)}
-                className="text-xs font-bold text-[#1db954] hover:underline cursor-pointer"
+                className="text-xs font-bold text-[#FACC15] hover:underline cursor-pointer"
               >
                 Play all ({offlineTracks.length})
               </button>
@@ -180,60 +177,67 @@ export default function MobileLibraryView({
           </div>
 
           {filteredOfflineTracks.length === 0 ? (
-            <div className="rounded-xl bg-[#181818] border border-white/5 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="rounded-2xl bg-[#1D1F27] border border-white/[0.06] p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div className="text-xs text-white/70">
-                <p className="font-semibold text-white">Play anytime with zero internet connection</p>
+                <p className="font-bold text-white">Play anytime with zero internet connection</p>
                 <p className="mt-0.5 text-white/50">
-                  Save direct tracks for offline use or import personal MP3, M4A, FLAC, or WAV files from your device.
+                  Save tracks for offline use or import personal MP3, M4A, FLAC, or WAV files from your device.
                 </p>
               </div>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="px-3.5 py-2 rounded-full bg-white text-black text-xs font-bold hover:bg-white/90 transition whitespace-nowrap shrink-0 cursor-pointer"
+                className="px-4 py-2.5 rounded-full bg-[#FACC15] text-black text-xs font-bold hover:brightness-110 transition whitespace-nowrap shrink-0 cursor-pointer"
               >
                 Choose Audio Files
               </button>
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {filteredOfflineTracks.map((track) => {
                 const isActive = currentTrack?.id === track.id;
                 return (
                   <div
                     key={track.id}
                     onClick={() => onPlayTrack(track, undefined, offlineTracks)}
-                    className={`group flex items-center justify-between gap-3 p-2.5 rounded-lg hover:bg-white/10 active:bg-white/15 transition cursor-pointer ${
-                      isActive ? 'bg-white/10' : 'bg-[#181818]/70'
+                    className={`group flex items-center justify-between gap-3 p-2.5 rounded-xl transition cursor-pointer border ${
+                      isActive
+                        ? 'bg-[#252833] border-[#F43F5E]/40'
+                        : 'bg-[#1D1F27] hover:bg-[#252833] border-white/[0.05]'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="relative w-11 h-11 rounded overflow-hidden flex-shrink-0 bg-[#282828] flex items-center justify-center">
+                      <div className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-[#131418] flex items-center justify-center">
                         <img
                           src={track.coverUrl}
                           alt={track.title}
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-cover"
                         />
-                        <div className={`absolute inset-0 bg-black/50 flex items-center justify-center transition ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                        <div
+                          className={`absolute inset-0 bg-black/50 flex items-center justify-center transition ${
+                            isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
                           {isActive && isPlaying ? (
-                            <Pause className="w-4 h-4 text-[#1db954] fill-current" />
+                            <Pause className="w-4 h-4 text-[#FACC15] fill-current" />
                           ) : (
                             <Play className="w-4 h-4 text-white fill-current ml-0.5" />
                           )}
                         </div>
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className={`text-sm font-semibold truncate ${isActive ? 'text-[#1db954]' : 'text-white'}`}>
+                        <p className={`text-sm font-bold truncate ${isActive ? 'text-[#FACC15]' : 'text-white'}`}>
                           {track.title}
                         </p>
-                        <p className="text-xs text-[#b3b3b3] truncate">
-                          {track.artist} · <span className="text-[#1db954]">{track.source === 'local' ? 'Local File' : 'Offline Ready'}</span>
+                        <p className="text-xs text-white/55 truncate">
+                          {track.artist} ·{' '}
+                          <span className="text-[#FACC15]">{track.source === 'local' ? 'Local File' : 'Offline Ready'}</span>
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-xs text-white/50 tabular-nums">{formatDuration(track.duration)}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-white/45 tabular-nums">{formatDuration(track.duration)}</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -265,27 +269,27 @@ export default function MobileLibraryView({
               <div
                 key={playlist.id}
                 onClick={() => onSelectPlaylist(playlist)}
-                className="flex items-center gap-3.5 p-2 rounded-lg hover:bg-white/5 active:bg-white/10 transition cursor-pointer"
+                className="flex items-center gap-3.5 p-2.5 rounded-xl bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.05] transition cursor-pointer"
               >
                 {isLiked ? (
-                  <div className="w-14 h-14 rounded-md bg-gradient-to-br from-[#450af5] to-[#8e8ee5] flex items-center justify-center flex-shrink-0 shadow">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#F43F5E] to-[#9333EA] flex items-center justify-center flex-shrink-0 shadow">
                     <Heart className="w-6 h-6 fill-white text-white" />
                   </div>
                 ) : playlist.coverUrl ? (
                   <img
                     src={playlist.coverUrl}
                     alt={playlist.name}
-                    className="w-14 h-14 rounded-md object-cover flex-shrink-0 shadow"
+                    className="w-14 h-14 rounded-xl object-cover flex-shrink-0 shadow"
                   />
                 ) : (
-                  <div className="w-14 h-14 rounded-md bg-[#282828] flex items-center justify-center flex-shrink-0 shadow text-gray-400">
+                  <div className="w-14 h-14 rounded-xl bg-[#252833] flex items-center justify-center flex-shrink-0 shadow text-white/50">
                     <Music className="w-6 h-6" />
                   </div>
                 )}
 
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm text-white truncate">{playlist.name}</h3>
-                  <p className="text-xs text-[#b3b3b3] mt-0.5 truncate">
+                  <h3 className="font-bold text-sm text-white truncate">{playlist.name}</h3>
+                  <p className="text-xs text-white/55 mt-0.5 truncate tabular-nums">
                     Playlist · {trackCount} {trackCount === 1 ? 'song' : 'songs'}
                   </p>
                 </div>

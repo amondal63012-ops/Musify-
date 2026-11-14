@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } f
 import {
   Play,
   Search,
-  Clock,
   Pause,
   Heart,
   ChevronLeft,
@@ -14,12 +13,15 @@ import {
   Download,
   CheckCircle2,
   Loader2,
+  Bell,
+  X,
+  Disc3,
 } from 'lucide-react';
 import { Track, Playlist, Artist } from '../types';
-import { searchArtists } from '../api';
+import { searchArtists, getViralSongs } from '../api';
 import { canSaveTrackOffline } from '../lib/offlineVault';
 import HomeView from './HomeView';
-import BrowseCategories from './BrowseCategories';
+import BrowseCategories, { BrowseCategoryItem } from './BrowseCategories';
 import PlaylistView from './PlaylistView';
 import MobileLibraryView from './MobileLibraryView';
 import ArtistView from './ArtistView';
@@ -74,6 +76,8 @@ const getSourceLabel = (source?: Track['source']) => {
   }
 };
 
+type SearchFilterTab = 'top' | 'songs' | 'artists' | 'albums';
+
 const MainView = forwardRef(({
   currentView,
   tracks,
@@ -103,7 +107,11 @@ const MainView = forwardRef(({
   offlineNotice = null,
 }: MainViewProps, ref) => {
   const [searchInput, setSearchInput] = useState('');
+  const [searchTab, setSearchTab] = useState<SearchFilterTab>('top');
+  const [activeCategory, setActiveCategory] = useState<BrowseCategoryItem | null>(null);
   const [matchingArtists, setMatchingArtists] = useState<Artist[]>([]);
+  const [isBellOpen, setIsBellOpen] = useState(false);
+  const [recentViral, setRecentViral] = useState<Track[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const offlineIds = new Set(offlineTracks.map((t) => t.id));
@@ -118,8 +126,15 @@ const MainView = forwardRef(({
   }));
 
   useEffect(() => {
+    getViralSongs().then((list) => {
+      if (Array.isArray(list)) setRecentViral(list.slice(0, 5));
+    });
+  }, []);
+
+  useEffect(() => {
     if (searchQueryProp && searchQueryProp !== 'Search') {
       setSearchInput(searchQueryProp);
+      setActiveCategory(null);
     } else if (searchQueryProp === 'Search' && searchInputRef.current) {
       searchInputRef.current.focus();
     }
@@ -138,20 +153,29 @@ const MainView = forwardRef(({
     }
   }, [searchInput]);
 
+  // Clear category sub-view if navigating away from search
+  useEffect(() => {
+    if (currentView !== 'search') {
+      setActiveCategory(null);
+    }
+  }, [currentView]);
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchInput.trim()) {
+      setActiveCategory(null);
       onSearch(searchInput);
     }
   };
 
-  const handleCategoryClick = (cat: string) => {
-    setSearchInput(cat);
-    onSearch(cat);
+  const handleCategoryClick = (cat: BrowseCategoryItem) => {
+    setActiveCategory(cat);
+    onSearch(cat.query);
     onViewChange?.('search');
   };
 
   const handleHomePlayContext = (query: string) => {
+    setActiveCategory(null);
     setSearchInput(query);
     onSearch(query);
     onViewChange?.('search');
@@ -178,17 +202,13 @@ const MainView = forwardRef(({
         }}
         disabled={isSaving}
         className={`flex items-center justify-center rounded-full transition cursor-pointer ${
-          compact ? 'w-7 h-7' : 'w-8 h-8'
-        } ${
-          isSaved
-            ? 'text-[#1db954]'
-            : 'text-gray-400 hover:text-white md:opacity-0 md:group-hover:opacity-100'
-        }`}
+          compact ? 'w-8 h-8' : 'w-9 h-9'
+        } ${isSaved ? 'text-[#FACC15]' : 'text-white/50 hover:text-white'}`}
         title={isSaved ? 'Saved offline (click to remove)' : 'Save track offline for zero-internet playback'}
         aria-label={isSaved ? 'Remove offline track' : 'Save track offline'}
       >
         {isSaving ? (
-          <Loader2 className="w-4 h-4 animate-spin text-[#1db954]" />
+          <Loader2 className="w-4 h-4 animate-spin text-[#FACC15]" />
         ) : isSaved ? (
           <CheckCircle2 className="w-4 h-4" />
         ) : (
@@ -199,115 +219,240 @@ const MainView = forwardRef(({
   };
 
   const topTrack = tracks.length > 0 ? tracks[0] : null;
+  const hideStickyHeader =
+    currentView === 'playlist' || currentView === 'artist' || (currentView === 'search' && Boolean(activeCategory));
+
+  // Unique album groupings when user selects "Albums" tab
+  const uniqueAlbums = React.useMemo(() => {
+    const map = new Map<string, { album: string; artist: string; coverUrl: string; track: Track }>();
+    for (const t of tracks) {
+      const key = `${t.album || t.title}-${t.artist}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          album: t.album || t.title,
+          artist: t.artist,
+          coverUrl: t.coverUrl,
+          track: t,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [tracks]);
 
   return (
-    <div className="flex-1 bg-[#121212] rounded-lg overflow-y-auto relative h-full flex flex-col">
-      {/* Background Gradient */}
-      <div className={`absolute top-0 left-0 w-full h-80 pointer-events-none z-0 transition-colors duration-1000 ${currentView === 'home' ? 'bg-gradient-to-b from-indigo-900/40 via-[#121212]/80 to-[#121212]' : 'bg-gradient-to-b from-[#242424] via-[#121212] to-[#121212]'}`}></div>
+    <div className="flex-1 bg-[#131418] md:rounded-2xl overflow-y-auto relative h-full flex flex-col border border-white/[0.04]">
+      {/* Subtle Ambient Backdrop Gradient */}
+      {!hideStickyHeader && (
+        <div
+          className={`absolute top-0 left-0 w-full h-72 pointer-events-none z-0 transition-colors duration-700 ${
+            currentView === 'home'
+              ? 'bg-gradient-to-b from-[#1E2436]/75 via-[#131418]/90 to-[#131418]'
+              : 'bg-gradient-to-b from-[#1C1E28] via-[#131418] to-[#131418]'
+          }`}
+        />
+      )}
 
-      {/* Top Bar */}
-      <div className={`sticky top-0 z-20 flex-shrink-0 transition-colors pt-safe ${currentView === 'playlist' || currentView === 'artist' ? 'bg-transparent' : 'bg-[#121212]/95 backdrop-blur-md border-b border-white/5'} px-4 sm:px-6 py-3`}>
-        {/* Mobile Header Row */}
-        <div className="flex items-center justify-between gap-2 md:hidden">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-full bg-[#1db954] text-black font-extrabold flex items-center justify-center text-xs shadow flex-shrink-0">
-              A
+      {/* Top Sticky Bar (hidden cleanly on full-bleed Playlist / Artist / Category subviews) */}
+      {!hideStickyHeader && (
+        <div className="sticky top-0 z-20 flex-shrink-0 transition-colors pt-safe bg-[#131418]/90 backdrop-blur-xl px-4 sm:px-6 py-3">
+          {/* Mobile Header Row matching screenshots: Title/Greeting context left + Bell & Avatar right */}
+          <div className="flex items-center justify-between gap-2 md:hidden">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {currentView === 'home' && (
+                <span className="text-xs font-extrabold tracking-widest uppercase text-[#FACC15]">Aura Music</span>
+              )}
+              {currentView === 'search' && (
+                <h1 className="text-[26px] font-extrabold text-white tracking-tight truncate">Search</h1>
+              )}
+              {currentView === 'viral' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onViewChange?.('home')}
+                    className="w-9 h-9 rounded-full bg-[#1D1F27] flex items-center justify-center text-white"
+                    aria-label="Back to home"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <h1 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-1.5 truncate">
+                    <Flame className="w-5 h-5 text-[#F43F5E] fill-current flex-shrink-0" />
+                    <span>Viral Hits</span>
+                  </h1>
+                </div>
+              )}
+              {currentView === 'artists' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onViewChange?.('home')}
+                    className="w-9 h-9 rounded-full bg-[#1D1F27] flex items-center justify-center text-white"
+                    aria-label="Back to home"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <h1 className="text-xl font-extrabold text-white tracking-tight truncate">Artists</h1>
+                </div>
+              )}
+              {currentView === 'library' && (
+                <h1 className="text-[26px] font-extrabold text-white tracking-tight truncate">Your Library</h1>
+              )}
             </div>
-            {currentView === 'home' && (
-              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-                <button onClick={() => onViewChange?.('home')} className="px-3 min-h-[32px] rounded-full text-xs font-semibold bg-white text-black whitespace-nowrap shrink-0">All</button>
-                <button onClick={() => onViewChange?.('viral')} className="px-3 min-h-[32px] rounded-full text-xs font-semibold bg-[#282828] text-white hover:bg-[#333] whitespace-nowrap shrink-0">Viral Hits</button>
-                <button onClick={() => onViewChange?.('artists')} className="px-3 min-h-[32px] rounded-full text-xs font-semibold bg-[#282828] text-white hover:bg-[#333] whitespace-nowrap shrink-0">Artists</button>
+
+            {/* Right Header Icons: Install (when eligible), Bell Notifications, and Golden Profile Avatar */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <PWAInstallButton variant="header" />
+              <button
+                onClick={() => setIsBellOpen(!isBellOpen)}
+                className="w-10 h-10 rounded-full bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.08] flex items-center justify-center text-white relative transition cursor-pointer"
+                aria-label="Trending notifications"
+              >
+                <Bell className="w-[18px] h-[18px]" />
+                {recentViral.length > 0 && (
+                  <span className="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-[#F43F5E]" />
+                )}
+              </button>
+              <button
+                onClick={() => onViewChange?.('library')}
+                className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FACC15] to-[#EA580C] text-black font-extrabold flex items-center justify-center text-sm shadow-lg ring-2 ring-[#FACC15]/25 cursor-pointer"
+                title="Open Library & Offline Vault"
+                aria-label="Library and Offline vault"
+              >
+                A
+              </button>
+            </div>
+          </div>
+
+          {/* Mobile Search Bar when in Search View */}
+          {currentView === 'search' && (
+            <form onSubmit={handleSearchSubmit} className="mt-3 relative w-full md:hidden">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search songs, artists, or Gaana link..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-full bg-[#1D1F27] border border-white/[0.08] text-white rounded-xl py-3 pl-10 pr-10 text-sm focus:outline-none focus:ring-1 focus:ring-[#F43F5E]/60 placeholder:text-white/40 font-medium"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => setSearchInput('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </form>
+          )}
+
+          {/* Desktop Top Bar */}
+          <div className="hidden md:flex items-center justify-between h-11">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onViewChange?.('home')}
+                className="w-9 h-9 rounded-full bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.06] flex items-center justify-center text-white/70 hover:text-white transition cursor-pointer"
+                aria-label="Go Home"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => onViewChange?.('search')}
+                className="w-9 h-9 rounded-full bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.06] flex items-center justify-center text-white/70 hover:text-white transition cursor-pointer"
+                aria-label="Go to Search"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+
+              {currentView === 'search' && (
+                <form onSubmit={handleSearchSubmit} className="relative w-96 ml-3">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50" />
+                  <input
+                    type="text"
+                    placeholder="Search official artists, songs, or Gaana link..."
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    className="w-full bg-[#1D1F27] hover:bg-[#232630] border border-white/[0.08] text-white rounded-xl py-2.5 pl-10 pr-9 text-sm focus:outline-none focus:ring-1 focus:ring-[#F43F5E]/60 transition-all placeholder:text-white/40 font-medium"
+                  />
+                  {searchInput && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchInput('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white cursor-pointer"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </form>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              {offlineNotice && (
+                <span className="text-xs font-medium text-[#FACC15] mr-2 truncate max-w-xs">{offlineNotice}</span>
+              )}
+              <PWAInstallButton variant="header" />
+              <button
+                onClick={() => setIsBellOpen(!isBellOpen)}
+                className="w-9 h-9 rounded-full bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.08] flex items-center justify-center text-white relative transition cursor-pointer"
+                title="Trending Alerts"
+                aria-label="Trending Alerts"
+              >
+                <Bell className="w-4 h-4" />
+                {recentViral.length > 0 && (
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#F43F5E]" />
+                )}
+              </button>
+              <button
+                onClick={() => onViewChange?.('library')}
+                className="flex items-center gap-2 rounded-full bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.08] px-3.5 min-h-[36px] text-xs font-semibold text-white transition whitespace-nowrap shrink-0 cursor-pointer"
+                title="Open Offline Vault & Local Audio Files"
+              >
+                <HardDriveDownload className="w-3.5 h-3.5 text-[#FACC15]" />
+                <span>Offline Vault ({offlineTracks.length})</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Interactive Notification Bell Dropdown Drawer */}
+          {isBellOpen && (
+            <div className="mt-3 p-3.5 rounded-2xl bg-[#1D1F27] border border-white/10 shadow-2xl animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#FACC15] flex items-center gap-1.5">
+                  <Flame className="w-3.5 h-3.5 text-[#F43F5E] fill-current" />
+                  Fresh Trending Hits
+                </span>
+                <button
+                  onClick={() => setIsBellOpen(false)}
+                  className="text-white/50 hover:text-white p-1 cursor-pointer"
+                  aria-label="Close notifications"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            )}
-            {currentView === 'search' && <h1 className="text-xl font-bold text-white tracking-tight truncate">Search</h1>}
-            {currentView === 'viral' && (
-              <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-1.5 truncate">
-                <Flame className="w-5 h-5 text-rose-500 fill-current flex-shrink-0" />
-                <span>Viral Hits</span>
-              </h1>
-            )}
-            {currentView === 'artists' && <h1 className="text-xl font-bold text-white tracking-tight truncate">Artists</h1>}
-            {currentView === 'library' && <h1 className="text-xl font-bold text-white tracking-tight truncate">Your Library</h1>}
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <PWAInstallButton variant="header" />
-            <button
-              onClick={() => onViewChange?.('library')}
-              className="w-9 h-9 rounded-full bg-[#242424] flex items-center justify-center text-[#1db954] hover:text-white border border-white/10"
-              title="Open Offline & Local Vault"
-              aria-label="Offline vault"
-            >
-              <HardDriveDownload className="w-4 h-4" />
-            </button>
-          </div>
+              <div className="space-y-1.5">
+                {recentViral.map((t, i) => (
+                  <button
+                    key={`${t.id}-${i}`}
+                    onClick={() => {
+                      onPlayTrack(t, undefined, recentViral);
+                      setIsBellOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white/[0.06] text-left transition cursor-pointer"
+                  >
+                    <img src={t.coverUrl} alt={t.title} className="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-white truncate">{t.title}</p>
+                      <p className="text-[11px] text-white/55 truncate">{t.artist}</p>
+                    </div>
+                    <Play className="w-3.5 h-3.5 text-[#F43F5E] fill-current flex-shrink-0" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-
-        {/* Mobile Search Input when in Search View */}
-        {currentView === 'search' && (
-          <form onSubmit={handleSearchSubmit} className="mt-3 relative w-full md:hidden">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search artists, songs, or paste Gaana URL"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full bg-[#242424] text-white rounded-lg py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-white/40 placeholder:text-gray-400 font-medium"
-            />
-          </form>
-        )}
-
-        {/* Desktop Top Bar */}
-        <div className="hidden md:flex items-center justify-between h-10">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onViewChange?.('home')}
-              className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-gray-400 hover:text-white transition cursor-pointer"
-              aria-label="Go Home"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => onViewChange?.('search')}
-              className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-gray-400 hover:text-white transition cursor-pointer"
-              aria-label="Go to Search"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
-
-            {currentView === 'search' && (
-              <form onSubmit={handleSearchSubmit} className="relative w-96 ml-4">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search official artists, songs, or paste Gaana link..."
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  className="w-full bg-[#242424] hover:bg-[#2a2a2a] hover:border-[#333333] border border-transparent text-white rounded-full py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all placeholder:text-gray-400 font-medium"
-                />
-              </form>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            {offlineNotice && (
-              <span className="text-xs font-medium text-amber-300 mr-2 truncate max-w-xs">
-                {offlineNotice}
-              </span>
-            )}
-            <PWAInstallButton variant="header" />
-            <button
-              onClick={() => onViewChange?.('library')}
-              className="flex items-center gap-1.5 rounded-full bg-[#242424] hover:bg-[#303030] border border-white/10 px-3.5 min-h-[36px] text-xs font-semibold text-white transition whitespace-nowrap shrink-0 cursor-pointer"
-              title="Open Offline Vault & Local Audio Files"
-            >
-              <HardDriveDownload className="w-3.5 h-3.5 text-[#1db954]" />
-              <span>Offline Vault ({offlineTracks.length})</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 relative z-10 pb-36 md:pb-12">
@@ -321,9 +466,7 @@ const MainView = forwardRef(({
           />
         )}
 
-        {currentView === 'artists' && (
-          <ArtistsListView onSelectArtist={(id) => onSelectArtist?.(id)} />
-        )}
+        {currentView === 'artists' && <ArtistsListView onSelectArtist={(id) => onSelectArtist?.(id)} />}
 
         {currentView === 'artist' && (
           <ArtistView
@@ -333,6 +476,9 @@ const MainView = forwardRef(({
             onPlayTrack={onPlayTrack}
             onBack={onBackFromArtist || (() => onViewChange?.('artists'))}
             onAddTrackToLiked={onAddTrackToLiked}
+            offlineIds={offlineIds}
+            savingOfflineId={savingOfflineId}
+            onToggleSaveOffline={onToggleSaveOffline}
           />
         )}
 
@@ -351,261 +497,345 @@ const MainView = forwardRef(({
         )}
 
         {currentView === 'playlist' && selectedPlaylist && (
-          <div className="absolute inset-0 -top-16">
-            <PlaylistView
-              playlist={selectedPlaylist}
-              currentTrack={currentTrack}
-              isPlaying={isPlaying}
-              onPlayTrack={onPlayTrack}
-              onRemoveTrack={onRemoveTrack}
-              onDeletePlaylist={onDeletePlaylist}
-            />
-          </div>
+          <PlaylistView
+            playlist={selectedPlaylist}
+            currentTrack={currentTrack}
+            isPlaying={isPlaying}
+            onPlayTrack={onPlayTrack}
+            onRemoveTrack={onRemoveTrack}
+            onDeletePlaylist={onDeletePlaylist}
+            onBack={() => onViewChange?.('library')}
+            offlineIds={offlineIds}
+            savingOfflineId={savingOfflineId}
+            onToggleSaveOffline={onToggleSaveOffline}
+            onAddTrackToLiked={onAddTrackToLiked}
+          />
         )}
 
         {currentView === 'search' && (
           <>
-            {searchInput.trim() === '' ? (
+            {/* SEARCH SCREEN 2: Vibrant Crimson/Category Showcase Sub-View ("The Best New Releases") */}
+            {activeCategory ? (
+              <div className="min-h-full pb-28 animate-in fade-in duration-200">
+                <div className={`pt-safe px-4 sm:px-6 pt-4 pb-6 bg-gradient-to-b ${activeCategory.headerGradient}`}>
+                  <div className="flex items-center justify-between mb-6">
+                    <button
+                      onClick={() => setActiveCategory(null)}
+                      className="w-10 h-10 rounded-full bg-black/30 hover:bg-black/50 backdrop-blur flex items-center justify-center text-white cursor-pointer"
+                      aria-label="Back to search categories"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                    <h2 className="text-lg font-extrabold text-white tracking-tight">{activeCategory.name}</h2>
+                    <div className="w-10" />
+                  </div>
+
+                  <h3 className="text-xl sm:text-2xl font-extrabold text-white mb-4 tracking-tight">
+                    The Best {activeCategory.name}
+                  </h3>
+
+                  {isLoading ? (
+                    <div className="flex items-center justify-center py-20">
+                      <div className="w-10 h-10 border-4 border-[#F43F5E] border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <>
+                      {/* 2-Column Showcase Cards matching SEARCH Screen 2 */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-7">
+                        {tracks.slice(0, 4).map((track, idx) => (
+                          <div
+                            key={`${track.id}-feat-${idx}`}
+                            onClick={() => onPlayTrack(track, undefined, tracks)}
+                            className="bg-[#1D1F27]/90 hover:bg-[#252833] rounded-2xl p-3 border border-white/[0.08] cursor-pointer transition group shadow-xl"
+                          >
+                            <div className="relative aspect-square mb-2.5">
+                              <img
+                                src={track.coverUrl}
+                                alt={track.title}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover rounded-xl shadow-lg"
+                              />
+                              <div className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-[#F43F5E] text-white flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition">
+                                <Play className="w-4 h-4 fill-current ml-0.5" />
+                              </div>
+                            </div>
+                            <h4 className="font-bold text-xs sm:text-sm text-white truncate">{track.title}</h4>
+                            <p className="text-[11px] text-white/60 line-clamp-2 mt-0.5 leading-snug">
+                              {track.artist} · {track.album || activeCategory.name}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Singles & Albums Track List */}
+                      <h3 className="text-base sm:text-lg font-bold text-white mb-3 tracking-tight">
+                        New Singles &amp; Releases
+                      </h3>
+                      <div className="space-y-2">
+                        {tracks.slice(4).map((track, idx) => {
+                          const isActive = currentTrack?.id === track.id;
+                          return (
+                            <div
+                              key={`${track.id}-sub-${idx}`}
+                              onClick={() => onPlayTrack(track, undefined, tracks)}
+                              className={`flex items-center justify-between gap-3 p-2.5 rounded-xl cursor-pointer border transition ${
+                                isActive
+                                  ? 'bg-[#252833] border-[#F43F5E]/40'
+                                  : 'bg-[#1D1F27] hover:bg-[#252833] border-white/[0.05]'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <img
+                                  src={track.coverUrl}
+                                  alt={track.title}
+                                  referrerPolicy="no-referrer"
+                                  className="w-11 h-11 rounded-lg object-cover flex-shrink-0"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <p className={`text-sm font-bold truncate ${isActive ? 'text-[#FACC15]' : 'text-white'}`}>
+                                    {track.title}
+                                  </p>
+                                  <p className="text-xs text-white/55 truncate">{track.artist}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                {renderOfflineSaveButton(track, true)}
+                                <span className="text-xs text-white/45 tabular-nums w-10 text-right">
+                                  {formatDuration(track.duration)}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : searchInput.trim() === '' ? (
               <BrowseCategories onCategoryClick={handleCategoryClick} />
             ) : (
-              <div className="p-4 sm:p-6 pb-24">
+              /* SEARCH SCREEN 4: Filter Tabs ("Top", "Songs", "Artists", "Albums") + Clean Track Cards */
+              <div className="px-4 sm:px-6 pt-2 pb-28">
+                {/* Category Filter Tabs */}
+                <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-4">
+                  {(
+                    [
+                      { id: 'top', label: 'Top' },
+                      { id: 'songs', label: 'Songs' },
+                      { id: 'artists', label: 'Artists' },
+                      { id: 'albums', label: 'Albums' },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setSearchTab(tab.id)}
+                      className={`px-4 min-h-[34px] rounded-full text-xs font-bold transition whitespace-nowrap shrink-0 cursor-pointer ${
+                        searchTab === tab.id
+                          ? 'bg-[#F43F5E] text-white shadow-md shadow-rose-500/25'
+                          : 'bg-[#1D1F27] hover:bg-[#252833] text-white/75 border border-white/[0.06]'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
                 {isLoading ? (
-                  <div className="flex items-center justify-center py-32">
-                    <div className="w-12 h-12 border-4 border-[#1db954] border-t-transparent rounded-full animate-spin"></div>
+                  <div className="flex items-center justify-center py-28">
+                    <div className="w-11 h-11 border-4 border-[#F43F5E] border-t-transparent rounded-full animate-spin"></div>
                   </div>
                 ) : (
                   <>
-                    {/* Matching Artists Section */}
-                    {matchingArtists.length > 0 && (
-                      <div className="mb-8">
-                        <div className="flex items-center justify-between mb-4">
-                          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-                            <UserCheck className="w-5 h-5 text-[#1db954]" />
-                            <span>Artists</span>
-                          </h2>
-                        </div>
-                        <div className="flex overflow-x-auto gap-4 pb-2 scrollbar-none">
+                    {/* ARTISTS SECTION */}
+                    {(searchTab === 'top' || searchTab === 'artists') && matchingArtists.length > 0 && (
+                      <div className="mb-7">
+                        <h2 className="text-base sm:text-lg font-bold text-white mb-3 flex items-center gap-2">
+                          <UserCheck className="w-4 h-4 text-[#FACC15]" />
+                          <span>Artists</span>
+                        </h2>
+                        <div className="flex overflow-x-auto gap-3.5 pb-2 scrollbar-none">
                           {matchingArtists.slice(0, 10).map((artist, idx) => (
                             <div
                               key={`${artist.id}-${idx}`}
                               onClick={() => onSelectArtist?.(artist.id)}
-                              className="w-[130px] sm:w-[150px] flex-shrink-0 bg-[#181818] hover:bg-[#282828] active:bg-[#333] transition p-3.5 rounded-2xl cursor-pointer flex flex-col items-center text-center group border border-white/5 shadow-lg"
+                              className="w-[132px] sm:w-[148px] flex-shrink-0 bg-[#1D1F27] hover:bg-[#252833] transition p-3.5 rounded-2xl cursor-pointer flex flex-col items-center text-center group border border-white/[0.06]"
                             >
-                              <div className="relative mb-2.5 w-24 h-24 sm:w-28 sm:h-28">
-                                <img
-                                  src={artist.avatarUrl}
-                                  alt={artist.name}
-                                  referrerPolicy="no-referrer"
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
-                                  }}
-                                  className="w-full h-full rounded-full object-cover border-2 border-transparent group-hover:border-[#1db954] transition shadow-md bg-white/5"
-                                />
-                                <div className="absolute bottom-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[#1db954] rounded-full p-2 shadow-lg hidden sm:block">
-                                  <Play className="w-3.5 h-3.5 text-black fill-current ml-0.5" />
-                                </div>
-                              </div>
+                              <img
+                                src={artist.avatarUrl}
+                                alt={artist.name}
+                                referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src =
+                                    'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
+                                }}
+                                className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-2 border-white/10 group-hover:border-[#FACC15] transition mb-2.5"
+                              />
                               <h3 className="font-bold text-xs sm:text-sm text-white truncate w-full">{artist.name}</h3>
-                              <span className="text-[11px] text-[#1db954] font-semibold mt-0.5">Artist</span>
+                              <span className="text-[11px] text-white/50 mt-0.5">Artist</span>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {topTrack && (
-                      <div className="mb-10">
-                        <h2 className="text-2xl font-bold text-white mb-6">Top result</h2>
-                        <div className="flex flex-col md:flex-row gap-6">
-                          {/* Hero Card */}
-                          <div
-                            className="bg-[#181818] p-5 rounded-lg w-full md:w-2/5 hover:bg-[#282828] transition duration-300 group relative cursor-pointer shadow-lg shadow-black/40"
-                            onClick={() => onPlayTrack(topTrack, undefined, tracks)}
-                          >
+                    {/* TOP RESULT HERO CARD (when on Top tab) */}
+                    {searchTab === 'top' && topTrack && (
+                      <div className="mb-7">
+                        <h2 className="text-base sm:text-lg font-bold text-white mb-3">Top Result</h2>
+                        <div
+                          onClick={() => onPlayTrack(topTrack, undefined, tracks)}
+                          className="bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.06] rounded-2xl p-4 sm:p-5 flex items-center justify-between gap-4 cursor-pointer group shadow-xl transition"
+                        >
+                          <div className="flex items-center gap-4 min-w-0 flex-1">
                             <img
                               src={topTrack.coverUrl}
                               alt={topTrack.title}
                               referrerPolicy="no-referrer"
-                              className="w-24 h-24 rounded-full md:rounded-md mb-5 shadow-lg object-cover"
+                              className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover shadow-lg flex-shrink-0"
                             />
-                            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1 truncate">{topTrack.title}</h1>
-                            <div className="flex items-center gap-2 text-xs font-semibold text-gray-400">
-                              <span className="truncate">{topTrack.artist}</span>
-                              <span>·</span>
-                              <span className="text-[#1db954] whitespace-nowrap shrink-0">{getSourceLabel(topTrack.source)}</span>
-                            </div>
-                            <div className={`absolute bottom-5 right-5 w-12 h-12 bg-[#1db954] rounded-full flex items-center justify-center shadow-xl shadow-black/40 transform transition-all duration-300 ${currentTrack?.id === topTrack.id && isPlaying ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 hover:bg-[#1ed760]'}`}>
-                              {currentTrack?.id === topTrack.id && isPlaying ? <Pause className="w-6 h-6 text-black fill-current" /> : <Play className="w-6 h-6 text-black fill-current ml-1" />}
+                            <div className="min-w-0 flex-1">
+                              <h3 className="text-base sm:text-xl font-extrabold text-white truncate">
+                                {topTrack.title}
+                              </h3>
+                              <p className="text-xs text-white/60 truncate mt-1">
+                                Song · {topTrack.artist} ·{' '}
+                                <span className="text-[#FACC15]">{getSourceLabel(topTrack.source)}</span>
+                              </p>
                             </div>
                           </div>
-
-                          {/* Top 4 songs */}
-                          <div className="w-full md:w-3/5 flex flex-col">
-                            <h2 className="text-xl font-bold text-white mb-4">Songs</h2>
-                            <div className="flex flex-col gap-1">
-                              {tracks.slice(1, 5).map((track, idx) => {
-                                const isActive = currentTrack?.id === track.id;
-                                return (
-                                  <div
-                                    key={`${track.id}-${idx}`}
-                                    onClick={() => onPlayTrack(track, undefined, tracks)}
-                                    className={`group flex items-center gap-3 p-2 rounded-md hover:bg-white/10 transition cursor-pointer ${isActive ? 'bg-white/10' : ''}`}
-                                  >
-                                    <div className="relative w-10 h-10 flex-shrink-0">
-                                      <img
-                                        src={track.coverUrl}
-                                        referrerPolicy="no-referrer"
-                                        className="w-full h-full rounded shadow object-cover"
-                                        alt={track.title}
-                                      />
-                                      <div className={`absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition ${isActive && isPlaying ? 'opacity-100' : ''}`}>
-                                        {isActive && isPlaying ? <Pause className="w-4 h-4 text-white fill-current" /> : <Play className="w-4 h-4 text-white fill-current ml-0.5" />}
-                                      </div>
-                                    </div>
-                                    <div className="flex-1 overflow-hidden flex flex-col justify-center min-w-0">
-                                      <div className={`text-sm font-semibold truncate ${isActive ? 'text-[#1db954]' : 'text-white'}`}>
-                                        {track.title}
-                                      </div>
-                                      <div className="text-xs text-gray-400 truncate">
-                                        {track.artist} · <span className="text-emerald-400">{getSourceLabel(track.source)}</span>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                                      {renderOfflineSaveButton(track, true)}
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onAddTrackToLiked?.(track);
-                                        }}
-                                        className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-white md:opacity-0 md:group-hover:opacity-100 transition cursor-pointer"
-                                        aria-label="Like song"
-                                      >
-                                        <Heart className="w-4 h-4" />
-                                      </button>
-                                      {playlists && playlists.length > 1 && (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onAddTrackToPlaylist?.(track);
-                                          }}
-                                          className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-white md:opacity-0 md:group-hover:opacity-100 transition cursor-pointer"
-                                          aria-label="Add to playlist"
-                                        >
-                                          <Plus className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                      <div className="text-xs text-gray-400 w-10 text-right tabular-nums">
-                                        {formatDuration(track.duration)}
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
+                          <div className="w-12 h-12 rounded-full bg-[#F43F5E] text-white flex items-center justify-center shadow-lg group-hover:scale-105 transition flex-shrink-0">
+                            {currentTrack?.id === topTrack.id && isPlaying ? (
+                              <Pause className="w-5 h-5 fill-current" />
+                            ) : (
+                              <Play className="w-5 h-5 fill-current ml-0.5" />
+                            )}
                           </div>
                         </div>
                       </div>
                     )}
 
-                    {tracks.length > 5 && (
-                      <div className="mt-8">
-                        <h2 className="text-2xl font-bold text-white mb-6">More results</h2>
-                        <div className="bg-[#121212] rounded-lg">
-                          <div className="grid grid-cols-[16px_1fr_minmax(120px,1fr)] md:grid-cols-[16px_1fr_1fr_minmax(130px,1fr)] gap-4 px-4 py-2 border-b border-[#282828] text-sm text-gray-400 font-medium mb-2">
-                            <div className="text-center">#</div>
-                            <div>Title</div>
-                            <div className="hidden md:block">Album</div>
-                            <div className="flex justify-end pr-4"><Clock className="w-4 h-4" /></div>
+                    {/* ALBUMS GRID (when on Albums tab) */}
+                    {searchTab === 'albums' && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5 mb-8">
+                        {uniqueAlbums.map((item, idx) => (
+                          <div
+                            key={`${item.album}-${idx}`}
+                            onClick={() => onPlayTrack(item.track, undefined, tracks)}
+                            className="bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.06] rounded-2xl p-3 cursor-pointer transition group"
+                          >
+                            <div className="aspect-square rounded-xl overflow-hidden mb-2.5 relative">
+                              <img
+                                src={item.coverUrl}
+                                alt={item.album}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-[#F43F5E] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-lg">
+                                <Play className="w-4 h-4 fill-current ml-0.5" />
+                              </div>
+                            </div>
+                            <h4 className="font-bold text-xs sm:text-sm text-white truncate flex items-center gap-1">
+                              <Disc3 className="w-3.5 h-3.5 text-[#FACC15] flex-shrink-0" />
+                              <span className="truncate">{item.album}</span>
+                            </h4>
+                            <p className="text-[11px] text-white/55 truncate mt-0.5">{item.artist}</p>
                           </div>
+                        ))}
+                      </div>
+                    )}
 
-                          <div className="space-y-1 pb-10">
-                            {tracks.slice(5).map((track, index) => {
-                              const isActive = currentTrack?.id === track.id;
-                              const actualIndex = index + 6;
-
-                              return (
-                                <div
-                                  key={`${track.id}-${index}`}
-                                  onClick={() => onPlayTrack(track, undefined, tracks)}
-                                  className={`group grid grid-cols-[16px_1fr_minmax(120px,1fr)] md:grid-cols-[16px_1fr_1fr_minmax(130px,1fr)] gap-4 px-4 py-2 items-center rounded-md cursor-pointer hover:bg-white/10 transition-colors ${isActive ? 'bg-white/10' : ''}`}
-                                >
-                                  <div className="text-gray-400 text-sm relative flex justify-center w-4 tabular-nums">
-                                    <span className={`group-hover:hidden ${isActive ? 'text-[#1db954] hidden' : 'block'}`}>{actualIndex}</span>
-                                    {isActive && isPlaying ? (
-                                      <Pause className="w-4 h-4 fill-current text-[#1db954] hidden group-hover:block absolute top-1/2 -translate-y-1/2" />
-                                    ) : (
-                                      <Play className={`w-4 h-4 fill-current absolute top-1/2 -translate-y-1/2 hidden group-hover:block ${isActive ? 'text-[#1db954]' : 'text-white'}`} />
-                                    )}
-                                    {isActive && !isPlaying && (
-                                      <span className="text-[#1db954] text-xs font-bold group-hover:hidden">{actualIndex}</span>
-                                    )}
-                                    {isActive && isPlaying && (
-                                      <div className="w-3 h-3 group-hover:hidden flex items-end justify-between gap-[1px]">
-                                        <div className="w-[3px] bg-[#1db954] animate-[bounce_1s_infinite] h-2"></div>
-                                        <div className="w-[3px] bg-[#1db954] animate-[bounce_1.2s_infinite] h-3"></div>
-                                        <div className="w-[3px] bg-[#1db954] animate-[bounce_0.8s_infinite] h-1.5"></div>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-3 overflow-hidden min-w-0">
+                    {/* SONGS LIST (on Top or Songs tab) */}
+                    {(searchTab === 'top' || searchTab === 'songs') && tracks.length > 0 && (
+                      <div>
+                        <h2 className="text-base sm:text-lg font-bold text-white mb-3">Songs</h2>
+                        <div className="space-y-2 pb-10">
+                          {tracks.map((track, idx) => {
+                            const isActive = currentTrack?.id === track.id;
+                            return (
+                              <div
+                                key={`${track.id}-${idx}`}
+                                onClick={() => onPlayTrack(track, undefined, tracks)}
+                                className={`group flex items-center justify-between gap-3 p-2.5 sm:p-3 rounded-xl transition cursor-pointer border ${
+                                  isActive
+                                    ? 'bg-[#252833] border-[#F43F5E]/40'
+                                    : 'bg-[#1D1F27] hover:bg-[#252833] border-white/[0.05]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0">
+                                  <div className="relative w-11 h-11 flex-shrink-0 rounded-lg overflow-hidden">
                                     <img
                                       src={track.coverUrl}
-                                      alt={track.title}
                                       referrerPolicy="no-referrer"
-                                      className="w-10 h-10 rounded shadow flex-shrink-0 object-cover"
+                                      className="w-full h-full object-cover"
+                                      alt={track.title}
                                     />
-                                    <div className="truncate min-w-0">
-                                      <div className={`text-sm font-medium truncate ${isActive ? 'text-[#1db954]' : 'text-white'}`}>{track.title}</div>
-                                      <div className="text-xs text-gray-400 truncate">
-                                        {track.artist} · <span className="text-emerald-400">{getSourceLabel(track.source)}</span>
-                                      </div>
+                                    <div
+                                      className={`absolute inset-0 bg-black/50 flex items-center justify-center transition ${
+                                        isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                                      }`}
+                                    >
+                                      {isActive && isPlaying ? (
+                                        <Pause className="w-4 h-4 text-[#FACC15] fill-current" />
+                                      ) : (
+                                        <Play className="w-4 h-4 text-white fill-current ml-0.5" />
+                                      )}
                                     </div>
                                   </div>
-
-                                  <div className="hidden md:block text-sm text-gray-400 truncate">
-                                    {track.album}
-                                  </div>
-
-                                  <div className="text-sm text-gray-400 flex items-center justify-end gap-2 pr-2">
-                                    {renderOfflineSaveButton(track, true)}
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onAddTrackToLiked?.(track);
-                                      }}
-                                      className="w-7 h-7 flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 hover:text-white transition cursor-pointer"
-                                      aria-label="Like song"
+                                  <div className="min-w-0 flex-1">
+                                    <div
+                                      className={`text-sm font-bold truncate ${
+                                        isActive ? 'text-[#FACC15]' : 'text-white'
+                                      }`}
                                     >
-                                      <Heart className="w-4 h-4" />
-                                    </button>
-                                    {playlists && playlists.length > 1 && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onAddTrackToPlaylist?.(track);
-                                        }}
-                                        className="w-7 h-7 flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 hover:text-white transition cursor-pointer"
-                                        aria-label="Add to playlist"
-                                      >
-                                        <Plus className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                    <span className="w-10 text-right tabular-nums">{formatDuration(track.duration)}</span>
+                                      {track.title}
+                                    </div>
+                                    <div className="text-xs text-white/55 truncate mt-0.5">
+                                      Song · {track.artist} ·{' '}
+                                      <span className="text-[#FACC15]">{getSourceLabel(track.source)}</span>
+                                    </div>
                                   </div>
                                 </div>
-                              );
-                            })}
-                          </div>
+
+                                <div
+                                  className="flex items-center gap-1 flex-shrink-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {renderOfflineSaveButton(track, true)}
+                                  <button
+                                    onClick={() => onAddTrackToLiked?.(track)}
+                                    className="w-8 h-8 flex items-center justify-center text-white/50 hover:text-[#F43F5E] transition cursor-pointer"
+                                    aria-label="Like song"
+                                  >
+                                    <Heart className="w-4 h-4" />
+                                  </button>
+                                  {playlists && playlists.length > 1 && (
+                                    <button
+                                      onClick={() => onAddTrackToPlaylist?.(track)}
+                                      className="w-8 h-8 flex items-center justify-center text-white/50 hover:text-white transition cursor-pointer"
+                                      aria-label="Add to playlist"
+                                    >
+                                      <Plus className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  <span className="text-xs text-white/45 w-10 text-right tabular-nums hidden sm:inline">
+                                    {formatDuration(track.duration)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
 
                     {tracks.length === 0 && (
-                      <div className="text-center text-gray-400 py-20 flex flex-col items-center gap-4">
-                        <Search className="w-12 h-12 opacity-50" />
-                        <h3 className="text-xl font-bold text-white">No results found</h3>
-                        <p>Try another artist, official release, or direct Gaana song link.</p>
+                      <div className="text-center text-white/60 py-20 flex flex-col items-center gap-3">
+                        <Search className="w-12 h-12 opacity-40" />
+                        <h3 className="text-lg font-bold text-white">No results found</h3>
+                        <p className="text-xs text-white/50">
+                          Try another artist, official release, or direct Gaana song link.
+                        </p>
                       </div>
                     )}
                   </>

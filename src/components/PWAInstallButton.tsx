@@ -14,7 +14,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
   if (isInstalled) {
     if (variant === 'sidebar') {
       return (
-        <div className="flex items-center gap-2 rounded-lg bg-[#1db954]/10 border border-[#1db954]/25 px-3 py-2 text-xs font-medium text-[#1db954]">
+        <div className="flex items-center gap-2 rounded-xl bg-[#FACC15]/10 border border-[#FACC15]/25 px-3 py-2 text-xs font-medium text-[#FACC15]">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           <span className="truncate">Standalone App Active</span>
         </div>
@@ -29,7 +29,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
       return (
         <button
           onClick={install}
-          className="w-full flex items-center justify-center gap-2 rounded-lg bg-[#1db954] hover:bg-[#1ed760] px-3 py-2.5 text-xs font-bold text-black shadow transition active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#F43F5E] hover:bg-[#FB7185] px-3 py-2.5 text-xs font-bold text-white shadow transition active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
           title="Install standalone app for uninterrupted background playback"
         >
           <Download className="w-4 h-4 flex-shrink-0" />
@@ -40,7 +40,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
     return (
       <button
         onClick={install}
-        className="flex items-center gap-1.5 rounded-full bg-[#1db954] hover:bg-[#1ed760] px-3.5 min-h-[36px] text-xs font-bold text-black shadow-lg transition active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
+        className="flex items-center gap-1.5 rounded-full bg-[#F43F5E] hover:bg-[#FB7185] px-3.5 min-h-[36px] text-xs font-bold text-white shadow-lg transition active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
         title="Install app for uninterrupted background & lock-screen playback"
       >
         <Download className="w-3.5 h-3.5 flex-shrink-0" />

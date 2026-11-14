@@ -150,8 +150,8 @@ export default function RightSidebar({ view, currentTrack, queue, onClose, onPla
   };
 
   return (
-    <div className="w-[350px] bg-[#121212] border-l border-[#282828] flex flex-col h-full flex-shrink-0 relative">
-      <div className={`px-4 py-4 flex items-center justify-between shrink-0 transition-colors duration-1000 ${view === 'lyrics' && currentTrack ? 'border-none' : 'border-b border-[#282828]'}`}
+    <div className="w-[340px] bg-[#181A22] rounded-2xl border border-white/[0.06] flex flex-col h-full flex-shrink-0 relative overflow-hidden">
+      <div className={`px-4 py-4 flex items-center justify-between shrink-0 transition-colors duration-1000 ${view === 'lyrics' && currentTrack ? 'border-none' : 'border-b border-white/[0.06]'}`}
            style={view === 'lyrics' && currentTrack ? { background: 'transparent' } : {}}>
         <h2 className={`font-bold text-base ${view === 'lyrics' && currentTrack ? 'text-white' : 'text-white'}`}>
           {view === 'queue' ? 'Queue' : 'Lyrics'}
@@ -199,20 +199,20 @@ export default function RightSidebar({ view, currentTrack, queue, onClose, onPla
           <div className="p-4">
             <h3 className="text-white font-bold text-sm mb-4">Now playing</h3>
             {currentTrack ? (
-              <div className="flex items-center gap-3 p-2 rounded-md bg-[#2a2a2a] group cursor-pointer mb-6">
+              <div className="flex items-center gap-3 p-2.5 rounded-xl bg-[#252833] group cursor-pointer mb-6 border border-white/[0.06]">
                 <div className="relative w-12 h-12 flex-shrink-0">
-                  <img src={currentTrack.coverUrl} className="w-full h-full rounded shadow object-cover" alt={currentTrack.title} />
-                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <img src={currentTrack.coverUrl} className="w-full h-full rounded-lg shadow object-cover" alt={currentTrack.title} />
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
                     <div className="w-3 h-3 flex items-end justify-between gap-[1px]">
-                      <div className="w-[3px] bg-[#1db954] animate-[bounce_1s_infinite] h-2"></div>
-                      <div className="w-[3px] bg-[#1db954] animate-[bounce_1.2s_infinite] h-3"></div>
-                      <div className="w-[3px] bg-[#1db954] animate-[bounce_0.8s_infinite] h-1.5"></div>
+                      <div className="w-[3px] bg-[#FACC15] animate-[bounce_1s_infinite] h-2"></div>
+                      <div className="w-[3px] bg-[#FACC15] animate-[bounce_1.2s_infinite] h-3"></div>
+                      <div className="w-[3px] bg-[#FACC15] animate-[bounce_0.8s_infinite] h-1.5"></div>
                     </div>
                   </div>
                 </div>
                 <div className="flex-1 overflow-hidden flex flex-col justify-center">
-                  <div className="text-sm font-semibold truncate text-[#1db954]">{currentTrack.title}</div>
-                  <div className="text-xs text-[#b3b3b3] truncate">{currentTrack.artist}</div>
+                  <div className="text-sm font-semibold truncate text-[#FACC15]">{currentTrack.title}</div>
+                  <div className="text-xs text-white/60 truncate">{currentTrack.artist}</div>
                 </div>
               </div>
             ) : (

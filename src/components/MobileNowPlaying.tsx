@@ -286,7 +286,7 @@ export default function MobileNowPlaying({
   if (!currentTrack) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#121212] flex flex-col justify-between overflow-hidden select-none pt-safe pb-safe animate-in fade-in slide-in-from-bottom duration-300">
+    <div className="fixed inset-0 z-50 bg-[#131418] flex flex-col justify-between overflow-hidden select-none pt-safe pb-safe animate-in fade-in slide-in-from-bottom duration-300">
       
       {/* 1. SPOTIFY-STYLE BACKGROUND CANVAS / VIDEO (Full-bleed vertical 9:16 portrait video) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none select-none">
@@ -373,13 +373,13 @@ export default function MobileNowPlaying({
             </div>
           </div>
 
-          <button 
+          <button
             onClick={onToggleLike}
             className="w-10 h-10 rounded-full flex items-center justify-center text-white active:scale-90 transition border border-white/20 hover:border-white"
             aria-label="Add to library"
           >
             {isLiked ? (
-              <Check className="w-5 h-5 text-[#1db954]" />
+              <Check className="w-5 h-5 text-[#FACC15]" />
             ) : (
               <Plus className="w-5 h-5" />
             )}
@@ -402,20 +402,20 @@ export default function MobileNowPlaying({
           </div>
         </div>
 
-        {/* Playback Controls (Screenshot: Shuffle, Prev, Big White Circle Play/Pause, Next, Timer) */}
+        {/* Playback Controls */}
         <div className="flex items-center justify-between px-2 pt-1">
-          <button 
+          <button
             onClick={onToggleShuffle}
-            className={`relative p-2 transition ${isShuffle ? 'text-[#1db954]' : 'text-white/60 hover:text-white'}`}
+            className={`relative p-2 transition ${isShuffle ? 'text-[#FACC15]' : 'text-white/60 hover:text-white'}`}
             aria-label="Shuffle"
           >
             <Shuffle className="w-5 h-5" />
             {isShuffle && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#1db954] rounded-full" />
+              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#FACC15] rounded-full" />
             )}
           </button>
 
-          <button 
+          <button
             onClick={onPrev}
             className="p-2 text-white/80 active:scale-90 hover:text-white transition"
             aria-label="Previous"
@@ -423,10 +423,10 @@ export default function MobileNowPlaying({
             <SkipBack className="w-7 h-7 fill-current" />
           </button>
 
-          {/* Large prominent white circular play button */}
-          <button 
+          {/* Large prominent rose-magenta circular play button */}
+          <button
             onClick={onPlayPause}
-            className="w-16 h-16 bg-white text-black rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(0,0,0,0.6)] active:scale-95 hover:scale-105 transition"
+            className="w-16 h-16 bg-[#F43F5E] text-white rounded-full flex items-center justify-center shadow-[0_8px_28px_rgba(244,63,94,0.45)] active:scale-95 hover:scale-105 transition"
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
@@ -436,7 +436,7 @@ export default function MobileNowPlaying({
             )}
           </button>
 
-          <button 
+          <button
             onClick={onNext}
             className="p-2 text-white/80 active:scale-90 hover:text-white transition"
             aria-label="Next"
@@ -445,23 +445,23 @@ export default function MobileNowPlaying({
           </button>
 
           {/* Sleep Timer Icon */}
-          <button 
+          <button
             onClick={() => setIsTimerModalOpen(true)}
-            className={`relative p-2 transition ${activeTimerMinutes ? 'text-[#1db954]' : 'text-white/60 hover:text-white'}`}
+            className={`relative p-2 transition ${activeTimerMinutes ? 'text-[#FACC15]' : 'text-white/60 hover:text-white'}`}
             aria-label="Sleep timer"
           >
             <Timer className="w-5 h-5" />
             {activeTimerMinutes && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#1db954] rounded-full" />
+              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#FACC15] rounded-full" />
             )}
           </button>
         </div>
 
-        {/* Utility Icon Row (Cast / Device, Share, Queue / Repeat) */}
+        {/* Utility Icon Row */}
         <div className="flex items-center justify-between text-white/60 px-2 pt-1 text-xs">
           <div className="flex items-center gap-1.5 text-white/70">
-            <MonitorSpeaker className="w-4 h-4 text-[#1db954]" />
-            <span className="text-[11px] font-semibold text-[#1db954]">
+            <MonitorSpeaker className="w-4 h-4 text-[#FACC15]" />
+            <span className="text-[11px] font-semibold text-[#FACC15]">
               {currentTrack.source === 'soundcloud'
                 ? 'SoundCloud · Background Active'
                 : currentTrack.source === 'gaana'
@@ -482,7 +482,7 @@ export default function MobileNowPlaying({
             <button onClick={handleShare} className="hover:text-white transition">
               <Share2 className="w-4 h-4" />
             </button>
-            <button onClick={onToggleRepeat} className={`transition ${repeatMode !== 'off' ? 'text-[#1db954]' : 'hover:text-white'}`}>
+            <button onClick={onToggleRepeat} className={`transition ${repeatMode !== 'off' ? 'text-[#FACC15]' : 'hover:text-white'}`}>
               <Repeat className="w-4 h-4" />
             </button>
           </div>

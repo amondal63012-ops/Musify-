@@ -831,7 +831,7 @@ export default function Player({
       {currentTrack && (
         <div
           onClick={() => setIsMobileNowPlayingOpen(true)}
-          className="fixed bottom-[68px] left-2 right-2 z-40 bg-[#242424] hover:bg-[#2b2b2b] rounded-lg h-[60px] flex items-center justify-between px-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.8)] md:hidden cursor-pointer border border-white/5 active:scale-[0.99] transition-transform select-none"
+          className="fixed bottom-[68px] left-2.5 right-2.5 z-40 bg-[#1D1F27]/95 backdrop-blur-xl hover:bg-[#252833] rounded-2xl h-[60px] flex items-center justify-between px-3 shadow-[0_12px_32px_rgba(0,0,0,0.75)] md:hidden cursor-pointer border border-white/[0.08] active:scale-[0.99] transition-transform select-none"
         >
           {/* Left: Thumbnail & Song Info */}
           <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0 pr-2">
@@ -839,11 +839,11 @@ export default function Player({
               src={currentTrack.coverUrl}
               alt={currentTrack.title}
               referrerPolicy="no-referrer"
-              className="w-10 h-10 rounded object-cover shadow flex-shrink-0"
+              className="w-10 h-10 rounded-xl object-cover shadow flex-shrink-0"
             />
             <div className="truncate flex-1 min-w-0">
               <h4 className="text-xs font-bold text-white truncate">{currentTrack.title}</h4>
-              <p className="text-[11px] text-[#b3b3b3] truncate mt-0.5">{currentTrack.artist}</p>
+              <p className="text-[11px] text-white/60 truncate mt-0.5">{currentTrack.artist}</p>
             </div>
           </div>
 
@@ -854,25 +854,25 @@ export default function Player({
               className="w-11 h-11 flex items-center justify-center rounded-full text-white/75 active:scale-90 transition"
               aria-label="Like song"
             >
-              <Heart className={`w-4 h-4 ${isLiked ? 'fill-[#1db954] text-[#1db954]' : 'hover:text-white'}`} />
+              <Heart className={`w-4 h-4 ${isLiked ? 'fill-[#F43F5E] text-[#F43F5E]' : 'hover:text-white'}`} />
             </button>
             <button
               onClick={onPlayPause}
-              className="w-11 h-11 flex items-center justify-center rounded-full text-white active:scale-90 transition"
+              className="w-10 h-10 flex items-center justify-center rounded-full bg-[#F43F5E] text-white active:scale-90 transition shadow-md shadow-rose-500/25"
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? (
-                <Pause className="w-5 h-5 fill-current" />
+                <Pause className="w-4 h-4 fill-current" />
               ) : (
-                <Play className="w-5 h-5 fill-current ml-0.5" />
+                <Play className="w-4 h-4 fill-current ml-0.5" />
               )}
             </button>
           </div>
 
           {/* Bottom Scrub Progress Line */}
-          <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white/10 rounded-b-lg overflow-hidden">
+          <div className="absolute bottom-0 left-2 right-2 h-[2.5px] bg-white/10 rounded-b-2xl overflow-hidden">
             <div
-              className="h-full bg-white rounded-full transition-all duration-300"
+              className="h-full bg-[#FACC15] rounded-full transition-all duration-300"
               style={{ width: `${Math.min(100, (progress / (duration || 1)) * 100)}%` }}
             />
           </div>
@@ -898,7 +898,7 @@ export default function Player({
       )}
 
       {/* Desktop Player Bar (hidden md:flex) */}
-      <div className="hidden md:flex h-[90px] bg-black border-t border-[#282828] items-center justify-between px-4 z-50 text-white select-none">
+      <div className="hidden md:flex h-[90px] bg-[#0D0E12] border-t border-white/[0.07] items-center justify-between px-4 z-50 text-white select-none">
         {/* Track Info */}
         <div className="w-[30%] min-w-[200px] flex items-center gap-3.5">
           {currentTrack ? (
@@ -907,34 +907,34 @@ export default function Player({
                 src={currentTrack.coverUrl}
                 alt={currentTrack.title}
                 referrerPolicy="no-referrer"
-                className="w-14 h-14 rounded-md shadow-lg object-cover flex-shrink-0"
+                className="w-14 h-14 rounded-xl shadow-lg object-cover flex-shrink-0"
               />
               <div className="overflow-hidden flex flex-col justify-center min-w-0">
-                <h4 className="text-sm font-semibold truncate hover:underline cursor-pointer text-white">{currentTrack.title}</h4>
-                <p className="text-[11px] text-[#b3b3b3] truncate">
-                  {currentTrack.artist} · <span className="text-[#1db954] font-semibold">{sourceLabel}</span>
+                <h4 className="text-sm font-bold truncate hover:underline cursor-pointer text-white">{currentTrack.title}</h4>
+                <p className="text-[11px] text-white/60 truncate">
+                  {currentTrack.artist} · <span className="text-[#FACC15] font-semibold">{sourceLabel}</span>
                 </p>
               </div>
               <button
                 onClick={onToggleLike}
-                className="text-[#b3b3b3] hover:text-white ml-1 transition cursor-pointer flex-shrink-0"
+                className="text-white/60 hover:text-white ml-1 transition cursor-pointer flex-shrink-0"
                 title={isLiked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
                 aria-label="Toggle like"
               >
-                <Heart className={`w-4 h-4 ${isLiked ? 'fill-[#1db954] text-[#1db954]' : ''}`} />
+                <Heart className={`w-4 h-4 ${isLiked ? 'fill-[#F43F5E] text-[#F43F5E]' : ''}`} />
               </button>
               {canOfflineSave && onToggleSaveOffline && currentTrack.source !== 'local' && (
                 <button
                   onClick={() => onToggleSaveOffline(currentTrack)}
                   disabled={isSavingOffline}
                   className={`transition cursor-pointer flex-shrink-0 ${
-                    isOfflineSaved ? 'text-[#1db954]' : 'text-[#b3b3b3] hover:text-white'
+                    isOfflineSaved ? 'text-[#FACC15]' : 'text-white/60 hover:text-white'
                   }`}
                   title={isOfflineSaved ? 'Saved offline in device vault (click to remove)' : 'Save offline for zero-internet playback'}
                   aria-label="Toggle offline save"
                 >
                   {isSavingOffline ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-[#1db954]" />
+                    <Loader2 className="w-4 h-4 animate-spin text-[#FACC15]" />
                   ) : isOfflineSaved ? (
                     <CheckCircle2 className="w-4 h-4" />
                   ) : (
@@ -944,7 +944,7 @@ export default function Player({
               )}
             </>
           ) : (
-            <div className="text-xs text-gray-500 font-medium">Select an official song to begin background playback</div>
+            <div className="text-xs text-white/45 font-medium">Select an official song to begin background playback</div>
           )}
         </div>
 
@@ -953,36 +953,36 @@ export default function Player({
           <div className="flex items-center gap-6">
             <button
               onClick={onToggleShuffle}
-              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${isShuffle ? 'text-[#1db954]' : 'text-[#b3b3b3] hover:text-white'}`}
+              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${isShuffle ? 'text-[#FACC15]' : 'text-white/60 hover:text-white'}`}
               aria-label="Shuffle"
             >
               <Shuffle className="w-4 h-4" />
-              {isShuffle && <div className="absolute -bottom-1 w-1 h-1 bg-[#1db954] rounded-full"></div>}
+              {isShuffle && <div className="absolute -bottom-1 w-1 h-1 bg-[#FACC15] rounded-full"></div>}
             </button>
-            <button onClick={onPrev} className="text-[#b3b3b3] hover:text-white transition cursor-pointer" aria-label="Previous track">
+            <button onClick={onPrev} className="text-white/70 hover:text-white transition cursor-pointer" aria-label="Previous track">
               <SkipBack className="w-5 h-5 fill-current" />
             </button>
             <button
               onClick={onPlayPause}
-              className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition transform cursor-pointer"
+              className="w-9 h-9 rounded-full bg-[#F43F5E] hover:bg-[#FB7185] text-white flex items-center justify-center hover:scale-105 transition transform cursor-pointer shadow-lg shadow-rose-500/25"
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
-              {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-1" />}
+              {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
             </button>
-            <button onClick={onNext} className="text-[#b3b3b3] hover:text-white transition cursor-pointer" aria-label="Next track">
+            <button onClick={onNext} className="text-white/70 hover:text-white transition cursor-pointer" aria-label="Next track">
               <SkipForward className="w-5 h-5 fill-current" />
             </button>
             <button
               onClick={onToggleRepeat}
-              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${repeatMode !== 'off' ? 'text-[#1db954]' : 'text-[#b3b3b3] hover:text-white'}`}
+              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${repeatMode !== 'off' ? 'text-[#FACC15]' : 'text-white/60 hover:text-white'}`}
               aria-label="Repeat"
             >
               <Repeat className="w-4 h-4" />
-              {repeatMode === 'one' && <span className="absolute text-[8px] font-bold bg-[#181818] rounded-full w-3 h-3 flex items-center justify-center right-[5px] top-[14px]">1</span>}
-              {repeatMode !== 'off' && <div className="absolute -bottom-1 w-1 h-1 bg-[#1db954] rounded-full"></div>}
+              {repeatMode === 'one' && <span className="absolute text-[8px] font-bold bg-[#181A22] rounded-full w-3 h-3 flex items-center justify-center right-[5px] top-[14px]">1</span>}
+              {repeatMode !== 'off' && <div className="absolute -bottom-1 w-1 h-1 bg-[#FACC15] rounded-full"></div>}
             </button>
           </div>
-          <div className="flex items-center gap-2 w-full max-w-md text-[11px] text-[#a7a7a7] font-medium group tabular-nums">
+          <div className="flex items-center gap-2 w-full max-w-md text-[11px] text-white/55 font-medium group tabular-nums">
             <span className="w-10 text-right">{formatTime(progress)}</span>
             <input
               type="range"
@@ -991,9 +991,9 @@ export default function Player({
               value={progress}
               onChange={handleSeekChange}
               aria-label="Seek progress"
-              className="flex-1 h-1 bg-[#4d4d4d] rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:opacity-0 group-hover:[&::-webkit-slider-thumb]:opacity-100 transition-all"
+              className="flex-1 h-1 bg-white/15 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-[#FACC15] [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:opacity-0 group-hover:[&::-webkit-slider-thumb]:opacity-100 transition-all"
               style={{
-                background: `linear-gradient(to right, ${currentTrack ? '#fff' : '#535353'} ${(progress / (duration || 1)) * 100}%, #535353 ${(progress / (duration || 1)) * 100}%)`,
+                background: `linear-gradient(to right, ${currentTrack ? '#FACC15' : '#4b5563'} ${(progress / (duration || 1)) * 100}%, rgba(255,255,255,0.16) ${(progress / (duration || 1)) * 100}%)`,
               }}
             />
             <span className="w-10 text-left">{formatTime(duration)}</span>
@@ -1001,29 +1001,29 @@ export default function Player({
         </div>
 
         {/* Extras / PiP / Volume */}
-        <div className="w-[30%] min-w-[200px] flex items-center justify-end gap-1 text-[#b3b3b3]">
+        <div className="w-[30%] min-w-[200px] flex items-center justify-end gap-1 text-white/60">
           <button
             onClick={() => onToggleRightSidebar('lyrics')}
-            className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${rightSidebarView === 'lyrics' ? 'text-[#1db954]' : 'hover:text-white'}`}
+            className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${rightSidebarView === 'lyrics' ? 'text-[#FACC15]' : 'hover:text-white'}`}
             title="Synchronized Lyrics"
             aria-label="Toggle lyrics"
           >
             <Mic2 className="w-4 h-4" />
-            {rightSidebarView === 'lyrics' && <div className="absolute -bottom-1 w-1 h-1 bg-[#1db954] rounded-full"></div>}
+            {rightSidebarView === 'lyrics' && <div className="absolute -bottom-1 w-1 h-1 bg-[#FACC15] rounded-full"></div>}
           </button>
           <button
             onClick={() => onToggleRightSidebar('queue')}
-            className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${rightSidebarView === 'queue' ? 'text-[#1db954]' : 'hover:text-white'}`}
+            className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${rightSidebarView === 'queue' ? 'text-[#FACC15]' : 'hover:text-white'}`}
             title="Play Queue"
             aria-label="Toggle queue"
           >
             <ListMusic className="w-4 h-4" />
-            {rightSidebarView === 'queue' && <div className="absolute -bottom-1 w-1 h-1 bg-[#1db954] rounded-full"></div>}
+            {rightSidebarView === 'queue' && <div className="absolute -bottom-1 w-1 h-1 bg-[#FACC15] rounded-full"></div>}
           </button>
           {supportsDocumentPiP && (
             <button
               onClick={handleToggleDocumentPiP}
-              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition cursor-pointer ${isPiPOpen ? 'text-[#1db954]' : 'hover:text-white'}`}
+              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition cursor-pointer ${isPiPOpen ? 'text-[#FACC15]' : 'hover:text-white'}`}
               title="Open Floating Mini Controller"
               aria-label="Toggle floating mini player"
             >
@@ -1031,7 +1031,7 @@ export default function Player({
             </button>
           )}
           <div className="w-8 h-8 flex items-center justify-center" title="Direct Background Audio Active">
-            <MonitorSpeaker className="w-4 h-4 text-[#1db954]" />
+            <MonitorSpeaker className="w-4 h-4 text-[#FACC15]" />
           </div>
           <Volume2 className="w-5 h-5 hover:text-white cursor-pointer transition ml-1 flex-shrink-0" />
           <input
@@ -1042,9 +1042,9 @@ export default function Player({
             value={volume}
             onChange={handleVolumeChange}
             aria-label="Volume"
-            className="w-[88px] h-1 bg-[#4d4d4d] rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:opacity-0 hover:[&::-webkit-slider-thumb]:opacity-100 transition-all group"
+            className="w-[88px] h-1 bg-white/15 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:opacity-0 hover:[&::-webkit-slider-thumb]:opacity-100 transition-all group"
             style={{
-              background: `linear-gradient(to right, #fff ${volume * 100}%, #535353 ${volume * 100}%)`,
+              background: `linear-gradient(to right, #fff ${volume * 100}%, rgba(255,255,255,0.16) ${volume * 100}%)`,
             }}
           />
         </div>

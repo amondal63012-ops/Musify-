@@ -340,7 +340,7 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen w-full bg-black flex flex-col font-sans overflow-hidden select-none text-white">
+    <div className="h-screen w-full bg-[#0D0E12] flex flex-col font-sans overflow-hidden select-none text-white">
       <OfflineIndicator />
 
       {/* Main App Layout */}
