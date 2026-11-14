@@ -1,21 +1,34 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import {
   Plus,
-  Search,
   Heart,
   Music,
-  ListFilter,
   HardDriveDownload,
   Upload,
   Play,
   Pause,
   Trash2,
+  LayoutGrid,
+  List as ListIcon,
+  Clock,
+  Disc3,
+  UserCheck,
 } from 'lucide-react';
-import { Playlist, Track } from '../types';
+import { Artist, Playlist, SavedAlbum, Track } from '../types';
+import { ECHO_COVERS } from './echoCovers';
+import SearchBar from './design/SearchBar';
+import SectionHeader from './design/SectionHeader';
+import PlaylistCard from './design/PlaylistCard';
+import AlbumCard from './design/AlbumCard';
+import ArtistCard from './design/ArtistCard';
+import SongRow from './design/SongRow';
 
 interface MobileLibraryViewProps {
   playlists: Playlist[];
   offlineTracks: Track[];
+  savedAlbums: SavedAlbum[];
+  followedArtists: Artist[];
+  recentlyPlayed: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
   onSelectPlaylist: (playlist: Playlist) => void;
@@ -23,11 +36,19 @@ interface MobileLibraryViewProps {
   onPlayTrack: (track: Track, contextPlaylist?: Playlist, contextTrackList?: Track[]) => void;
   onImportLocalFiles: (files: FileList) => Promise<void>;
   onRemoveOfflineTrack: (trackId: string) => Promise<void>;
+  onSelectArtist: (artistId: string) => void;
+  onToggleSaveAlbum: (album: SavedAlbum) => void;
 }
+
+type LibraryFilter = 'all' | 'playlists' | 'albums' | 'artists' | 'offline';
+type LibrarySort = 'recent' | 'az' | 'tracks';
 
 export default function MobileLibraryView({
   playlists,
   offlineTracks,
+  savedAlbums,
+  followedArtists,
+  recentlyPlayed,
   currentTrack,
   isPlaying,
   onSelectPlaylist,
@@ -35,24 +56,73 @@ export default function MobileLibraryView({
   onPlayTrack,
   onImportLocalFiles,
   onRemoveOfflineTrack,
+  onSelectArtist,
+  onToggleSaveAlbum,
 }: MobileLibraryViewProps) {
-  const [filter, setFilter] = useState<'all' | 'playlists' | 'offline'>('all');
+  const [filter, setFilter] = useState<LibraryFilter>('all');
+  const [sortBy, setSortBy] = useState<LibrarySort>('recent');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchFilter, setSearchFilter] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const q = searchFilter.trim().toLowerCase();
-  const filteredPlaylists = playlists.filter((p) => {
-    if (filter === 'offline') return false;
-    if (q && !p.name.toLowerCase().includes(q)) return false;
-    return true;
-  });
 
-  const filteredOfflineTracks = offlineTracks.filter((t) => {
-    if (filter === 'playlists') return false;
-    if (q && !`${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q)) return false;
-    return true;
-  });
+  const likedPlaylist = useMemo(
+    () => playlists.find((p) => p.isLikedSongs) || null,
+    [playlists]
+  );
+
+  const filteredPlaylists = useMemo(() => {
+    const list = playlists.filter((p) => {
+      if (q && !p.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    if (sortBy === 'az') {
+      return [...list].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    if (sortBy === 'tracks') {
+      return [...list].sort((a, b) => b.tracks.length - a.tracks.length);
+    }
+    return list;
+  }, [playlists, q, sortBy]);
+
+  const filteredAlbums = useMemo(() => {
+    const list = savedAlbums.filter((a) =>
+      q ? `${a.title} ${a.artist}`.toLowerCase().includes(q) : true
+    );
+    if (sortBy === 'az') {
+      return [...list].sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return list;
+  }, [savedAlbums, q, sortBy]);
+
+  const filteredArtists = useMemo(() => {
+    const list = followedArtists.filter((a) =>
+      q ? `${a.name} ${a.genre}`.toLowerCase().includes(q) : true
+    );
+    if (sortBy === 'az') {
+      return [...list].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return list;
+  }, [followedArtists, q, sortBy]);
+
+  const filteredOfflineTracks = useMemo(() => {
+    const list = offlineTracks.filter((t) =>
+      q ? `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q) : true
+    );
+    if (sortBy === 'az') {
+      return [...list].sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return list;
+  }, [offlineTracks, q, sortBy]);
+
+  const recentlyAddedTracks = useMemo(() => {
+    return [...offlineTracks]
+      .filter((t) => (q ? `${t.title} ${t.artist}`.toLowerCase().includes(q) : true))
+      .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
+      .slice(0, 6);
+  }, [offlineTracks, q]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -67,15 +137,8 @@ export default function MobileLibraryView({
     }
   };
 
-  const formatDuration = (ms: number) => {
-    if (!ms || isNaN(ms)) return '0:00';
-    const mins = Math.floor(ms / 60000);
-    const secs = Math.floor((ms % 60000) / 1000);
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-
   return (
-    <div className="px-4 sm:px-6 pt-2 pb-36 text-white min-h-screen">
+    <div className="px-4 sm:px-6 lg:px-8 pt-4 pb-44 text-white space-y-7 select-none animate-in fade-in duration-200">
       <input
         ref={fileInputRef}
         type="file"
@@ -85,108 +148,278 @@ export default function MobileLibraryView({
         className="hidden"
       />
 
-      {/* Action Header */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Page Header & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="hidden md:block text-2xl font-extrabold tracking-tight">Your Library</h2>
-          <p className="text-xs text-white/55">Playlists, liked songs &amp; offline device vault</p>
+          <p className="text-xs font-medium text-[#A3A3A3] mb-1">Personal Collection</p>
+          <h1 className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+            Your Library
+          </h1>
         </div>
-        <div className="flex items-center gap-2 ml-auto">
+
+        <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
-            className="flex items-center gap-1.5 rounded-full bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.08] px-3.5 min-h-[38px] text-xs font-semibold text-white transition active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
-            title="Import MP3, M4A, FLAC, or WAV files from your device"
+            className="aura-btn-secondary inline-flex items-center gap-2 rounded-full px-4 min-h-[40px] text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer"
           >
-            <Upload className="w-3.5 h-3.5 text-[#FACC15]" />
+            <Upload className="w-3.5 h-3.5" />
             <span>{isImporting ? 'Importing...' : 'Import Audio'}</span>
           </button>
           <button
+            type="button"
             onClick={onCreatePlaylist}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-[#F43F5E] hover:bg-[#FB7185] text-white active:scale-95 transition cursor-pointer shadow-lg shadow-rose-500/20"
-            aria-label="Create playlist"
+            className="aura-btn-primary inline-flex items-center gap-1.5 rounded-full px-4 min-h-[40px] text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-4 h-4" />
+            <span>New Playlist</span>
           </button>
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 mb-4 overflow-x-auto scrollbar-none pb-1">
-        <button
-          onClick={() => setFilter('all')}
-          className={`px-4 min-h-[34px] rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer ${
-            filter === 'all' ? 'bg-[#F43F5E] text-white' : 'bg-[#1D1F27] text-white/75 hover:bg-[#252833]'
-          }`}
-        >
-          All
-        </button>
-        <button
-          onClick={() => setFilter('playlists')}
-          className={`px-4 min-h-[34px] rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer ${
-            filter === 'playlists' ? 'bg-[#F43F5E] text-white' : 'bg-[#1D1F27] text-white/75 hover:bg-[#252833]'
-          }`}
-        >
-          Playlists
-        </button>
-        <button
-          onClick={() => setFilter('offline')}
-          className={`px-4 min-h-[34px] rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
-            filter === 'offline' ? 'bg-[#FACC15] text-black' : 'bg-[#1D1F27] text-white/75 hover:bg-[#252833]'
-          }`}
-        >
-          <HardDriveDownload className="w-3.5 h-3.5" />
-          <span>Offline Vault ({offlineTracks.length})</span>
-        </button>
+      {/* Category Filters */}
+      <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-1">
+        {(
+          [
+            { id: 'all', label: 'All' },
+            { id: 'playlists', label: `Playlists (${playlists.length})` },
+            { id: 'albums', label: `Saved Albums (${savedAlbums.length})` },
+            { id: 'artists', label: `Followed Artists (${followedArtists.length})` },
+            { id: 'offline', label: `Offline Vault (${offlineTracks.length})` },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setFilter(tab.id)}
+            className={`px-4 min-h-[36px] rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition cursor-pointer ${
+              filter === tab.id
+                ? 'bg-white text-black'
+                : 'bg-[#191919] border border-[#303030] text-[#A3A3A3] hover:text-white hover:bg-[#222222]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Search & Sort row */}
-      <div className="flex items-center justify-between mb-5 text-xs text-white/60 gap-2">
-        <div className="flex items-center gap-2 bg-[#1D1F27] px-3.5 py-2.5 rounded-xl flex-1 max-w-xs border border-white/[0.06]">
-          <Search className="w-3.5 h-3.5 text-white/45 flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search library & saved audio"
+      {/* Search, Sort & Grid/List Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="w-full sm:max-w-xs">
+          <SearchBar
             value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            className="bg-transparent border-none outline-none text-xs text-white placeholder-white/40 w-full"
+            onChange={setSearchFilter}
+            placeholder="Filter playlists, albums, tracks..."
+            size="md"
           />
         </div>
-        <div className="flex items-center gap-1 text-white/60">
-          <span>Recents</span>
-          <ListFilter className="w-3.5 h-3.5" />
+
+        <div className="flex items-center justify-between sm:justify-end gap-2">
+          <div className="inline-flex items-center gap-1 bg-[#191919] border border-[#303030] rounded-xl p-1">
+            {(
+              [
+                { id: 'recent', label: 'Recent' },
+                { id: 'az', label: 'A–Z' },
+                { id: 'tracks', label: 'Most' },
+              ] as const
+            ).map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSortBy(s.id)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  sortBy === s.id ? 'bg-[#303030] text-white' : 'text-[#737373] hover:text-white'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="inline-flex items-center bg-[#191919] border border-[#303030] rounded-xl p-1">
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition cursor-pointer ${
+                viewMode === 'list' ? 'bg-white text-black' : 'text-[#A3A3A3] hover:text-white'
+              }`}
+              aria-label="List view"
+            >
+              <ListIcon className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition cursor-pointer ${
+                viewMode === 'grid' ? 'bg-white text-black' : 'text-[#A3A3A3] hover:text-white'
+              }`}
+              aria-label="Grid view"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Offline & Local Audio Vault Section */}
-      {filter !== 'playlists' && (
-        <div className="mb-7">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold text-white flex items-center gap-2">
-              <HardDriveDownload className="w-4 h-4 text-[#FACC15]" />
-              <span>Offline &amp; Local Vault</span>
-            </h2>
-            {offlineTracks.length > 0 && (
-              <button
-                onClick={() => onPlayTrack(offlineTracks[0], undefined, offlineTracks)}
-                className="text-xs font-bold text-[#FACC15] hover:underline cursor-pointer"
-              >
-                Play all ({offlineTracks.length})
-              </button>
-            )}
+      {/* Liked Songs & Quick Stats Strip when filter === 'all' */}
+      {filter === 'all' && likedPlaylist && (
+        <div
+          onClick={() => onSelectPlaylist(likedPlaylist)}
+          className="aura-card rounded-2xl p-4 sm:p-5 flex items-center justify-between gap-4 cursor-pointer group"
+        >
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#303030] to-[#111111] border border-white/20 flex items-center justify-center shrink-0">
+              <Heart className="w-6 h-6 text-white fill-white" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-extrabold text-white truncate">Liked Songs</h2>
+              <p className="text-xs text-[#A3A3A3] tabular-nums mt-0.5">
+                {likedPlaylist.tracks.length} {likedPlaylist.tracks.length === 1 ? 'favourite track' : 'favourite tracks'}
+              </p>
+            </div>
           </div>
+          <div className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+            <Play className="w-4 h-4 fill-current ml-0.5" />
+          </div>
+        </div>
+      )}
+
+      {/* Playlists Section */}
+      {(filter === 'all' || filter === 'playlists') && (
+        <section>
+          <SectionHeader title="Your Playlists" subtitle="Personal collections and Liked Songs" />
+          {filteredPlaylists.length === 0 ? (
+            <div className="p-8 rounded-2xl bg-[#191919] border border-[#303030] text-center">
+              <p className="text-sm font-semibold text-white">No playlists match your filter</p>
+            </div>
+          ) : viewMode === 'grid' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+              {filteredPlaylists.map((playlist) => (
+                <PlaylistCard
+                  key={playlist.id}
+                  playlist={playlist}
+                  onClick={() => onSelectPlaylist(playlist)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredPlaylists.map((playlist) => {
+                const cover = playlist.coverUrl || playlist.tracks[0]?.coverUrl;
+                return (
+                  <div
+                    key={playlist.id}
+                    onClick={() => onSelectPlaylist(playlist)}
+                    className="aura-card rounded-xl p-2.5 sm:p-3 flex items-center justify-between gap-3 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#111111] border border-[#303030] flex items-center justify-center shrink-0">
+                        {cover ? (
+                          <img src={cover} alt={playlist.name} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                        ) : playlist.isLikedSongs ? (
+                          <Heart className="w-5 h-5 text-white fill-white" />
+                        ) : (
+                          <Music className="w-5 h-5 text-[#737373]" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-white truncate">{playlist.name}</h3>
+                        <p className="text-xs text-[#A3A3A3] tabular-nums mt-0.5">
+                          Playlist · {playlist.tracks.length} {playlist.tracks.length === 1 ? 'song' : 'songs'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Saved Albums */}
+      {(filter === 'all' || filter === 'albums') && (
+        <section>
+          <SectionHeader title="Saved Albums" subtitle="Full records & EPs bookmarked for quick access" />
+          {filteredAlbums.length === 0 ? (
+            <div className="p-6 rounded-2xl bg-[#191919] border border-[#303030] flex items-center gap-4 text-[#A3A3A3]">
+              <Disc3 className="w-8 h-8 text-[#737373] shrink-0" />
+              <div className="text-xs">
+                <p className="text-white font-semibold text-sm">No saved albums yet</p>
+                <p className="mt-0.5">Tap the bookmark button on any album card across Home or Explore.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+              {filteredAlbums.map((album) => (
+                <AlbumCard
+                  key={album.id}
+                  title={album.title}
+                  artist={album.artist}
+                  coverUrl={album.coverUrl}
+                  isSaved
+                  onPlay={() => album.tracks[0] && onPlayTrack(album.tracks[0], undefined, album.tracks)}
+                  onToggleSave={() => onToggleSaveAlbum(album)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Followed Artists */}
+      {(filter === 'all' || filter === 'artists') && (
+        <section>
+          <SectionHeader title="Followed Artists" subtitle="Performers you follow across Aura Music" />
+          {filteredArtists.length === 0 ? (
+            <div className="p-6 rounded-2xl bg-[#191919] border border-[#303030] flex items-center gap-4 text-[#A3A3A3]">
+              <UserCheck className="w-8 h-8 text-[#737373] shrink-0" />
+              <div className="text-xs">
+                <p className="text-white font-semibold text-sm">No followed artists yet</p>
+                <p className="mt-0.5">Open any artist page and tap Follow to keep them here.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+              {filteredArtists.map((artist) => (
+                <ArtistCard
+                  key={artist.id}
+                  artist={artist}
+                  showGenre
+                  onClick={() => onSelectArtist(artist.id)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Offline Vault & Recently Added */}
+      {(filter === 'all' || filter === 'offline') && (
+        <section>
+          <SectionHeader
+            title="Offline & Local Vault"
+            subtitle="Downloaded audio & local device files playable without internet"
+            actionLabel={offlineTracks.length > 0 ? `Play all (${offlineTracks.length})` : undefined}
+            onAction={() => offlineTracks[0] && onPlayTrack(offlineTracks[0], undefined, offlineTracks)}
+          />
 
           {filteredOfflineTracks.length === 0 ? (
-            <div className="rounded-2xl bg-[#1D1F27] border border-white/[0.06] p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="text-xs text-white/70">
-                <p className="font-bold text-white">Play anytime with zero internet connection</p>
-                <p className="mt-0.5 text-white/50">
-                  Save tracks for offline use or import personal MP3, M4A, FLAC, or WAV files from your device.
-                </p>
+            <div className="rounded-2xl bg-[#191919] border border-[#303030] p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <HardDriveDownload className="w-7 h-7 text-[#A3A3A3] shrink-0 mt-0.5" />
+                <div className="text-xs text-[#A3A3A3]">
+                  <p className="font-bold text-white text-sm">Offline &amp; Local Playback Vault</p>
+                  <p className="mt-1">
+                    Save streaming tracks offline or import MP3, M4A, FLAC, and WAV audio files from your device.
+                  </p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2.5 rounded-full bg-[#FACC15] text-black text-xs font-bold hover:brightness-110 transition whitespace-nowrap shrink-0 cursor-pointer"
+                className="aura-btn-primary px-4 py-2.5 rounded-full text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer"
               >
                 Choose Audio Files
               </button>
@@ -199,104 +432,94 @@ export default function MobileLibraryView({
                   <div
                     key={track.id}
                     onClick={() => onPlayTrack(track, undefined, offlineTracks)}
-                    className={`group flex items-center justify-between gap-3 p-2.5 rounded-xl transition cursor-pointer border ${
-                      isActive
-                        ? 'bg-[#252833] border-[#F43F5E]/40'
-                        : 'bg-[#1D1F27] hover:bg-[#252833] border-white/[0.05]'
+                    className={`group flex items-center justify-between gap-3 p-2.5 sm:px-3.5 rounded-xl border transition cursor-pointer ${
+                      isActive ? 'bg-[#222222] border-white/30' : 'bg-[#191919] border-[#303030] hover:bg-[#222222]'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-[#131418] flex items-center justify-center">
+                      <div className="relative w-11 h-11 rounded-lg overflow-hidden shrink-0 bg-[#111111]">
                         <img
-                          src={track.coverUrl}
+                          src={track.coverUrl || ECHO_COVERS.global}
                           alt={track.title}
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-cover"
                         />
                         <div
-                          className={`absolute inset-0 bg-black/50 flex items-center justify-center transition ${
+                          className={`absolute inset-0 bg-black/55 flex items-center justify-center transition ${
                             isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                           }`}
                         >
                           {isActive && isPlaying ? (
-                            <Pause className="w-4 h-4 text-[#FACC15] fill-current" />
+                            <Pause className="w-4 h-4 text-white fill-current" />
                           ) : (
                             <Play className="w-4 h-4 text-white fill-current ml-0.5" />
                           )}
                         </div>
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className={`text-sm font-bold truncate ${isActive ? 'text-[#FACC15]' : 'text-white'}`}>
-                          {track.title}
-                        </p>
-                        <p className="text-xs text-white/55 truncate">
-                          {track.artist} ·{' '}
-                          <span className="text-[#FACC15]">{track.source === 'local' ? 'Local File' : 'Offline Ready'}</span>
+                        <p className="text-sm font-bold text-white truncate">{track.title}</p>
+                        <p className="text-xs text-[#A3A3A3] truncate mt-0.5">
+                          {track.artist} · {track.source === 'local' ? 'Local File' : 'Offline Saved'}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs text-white/45 tabular-nums">{formatDuration(track.duration)}</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRemoveOfflineTrack(track.id);
-                        }}
-                        className="w-9 h-9 flex items-center justify-center rounded-full text-white/50 hover:text-rose-400 hover:bg-white/10 transition cursor-pointer"
-                        title="Remove from offline vault"
-                        aria-label="Remove offline track"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveOfflineTrack(track.id);
+                      }}
+                      className="w-9 h-9 flex items-center justify-center rounded-full text-[#737373] hover:text-white hover:bg-[#303030] transition cursor-pointer"
+                      aria-label="Remove offline track"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 );
               })}
             </div>
           )}
-        </div>
+        </section>
       )}
 
-      {/* Playlists & Liked Songs List */}
-      {filter !== 'offline' && (
-        <div className="space-y-2">
-          {filteredPlaylists.map((playlist) => {
-            const isLiked = playlist.isLikedSongs;
-            const trackCount = playlist.tracks.length;
+      {/* Recently Added & Recently Played */}
+      {filter === 'all' && recentlyAddedTracks.length > 0 && (
+        <section>
+          <SectionHeader title="Recently Added" subtitle="Latest additions to your device vault" />
+          <div className="space-y-2">
+            {recentlyAddedTracks.map((track, idx) => (
+              <SongRow
+                key={`${track.id}-ra-${idx}`}
+                track={track}
+                isActive={currentTrack?.id === track.id}
+                isPlaying={isPlaying}
+                onPlay={() => onPlayTrack(track, undefined, recentlyAddedTracks)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
-            return (
-              <div
-                key={playlist.id}
-                onClick={() => onSelectPlaylist(playlist)}
-                className="flex items-center gap-3.5 p-2.5 rounded-xl bg-[#1D1F27] hover:bg-[#252833] border border-white/[0.05] transition cursor-pointer"
-              >
-                {isLiked ? (
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#F43F5E] to-[#9333EA] flex items-center justify-center flex-shrink-0 shadow">
-                    <Heart className="w-6 h-6 fill-white text-white" />
-                  </div>
-                ) : playlist.coverUrl ? (
-                  <img
-                    src={playlist.coverUrl}
-                    alt={playlist.name}
-                    className="w-14 h-14 rounded-xl object-cover flex-shrink-0 shadow"
-                  />
-                ) : (
-                  <div className="w-14 h-14 rounded-xl bg-[#252833] flex items-center justify-center flex-shrink-0 shadow text-white/50">
-                    <Music className="w-6 h-6" />
-                  </div>
-                )}
-
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-bold text-sm text-white truncate">{playlist.name}</h3>
-                  <p className="text-xs text-white/55 mt-0.5 truncate tabular-nums">
-                    Playlist · {trackCount} {trackCount === 1 ? 'song' : 'songs'}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {filter === 'all' && recentlyPlayed.length > 0 && (
+        <section>
+          <SectionHeader
+            title="Recently Played"
+            subtitle="Your recent listening timeline"
+            rightSlot={<Clock className="w-4 h-4 text-[#737373]" />}
+          />
+          <div className="space-y-2">
+            {recentlyPlayed.slice(0, 6).map((track, idx) => (
+              <SongRow
+                key={`${track.id}-rl-${idx}`}
+                track={track}
+                isActive={currentTrack?.id === track.id}
+                isPlaying={isPlaying}
+                onPlay={() => onPlayTrack(track, undefined, recentlyPlayed)}
+              />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

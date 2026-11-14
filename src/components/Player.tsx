@@ -4,9 +4,9 @@ import {
   SkipBack,
   SkipForward,
   Volume2,
+  VolumeX,
   Repeat,
   Shuffle,
-  MonitorSpeaker,
   ListMusic,
   Mic2,
   Heart,
@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Loader2,
   PictureInPicture2,
+  Maximize2,
 } from 'lucide-react';
 import { Track, RepeatMode } from '../types';
 import React, { useEffect, useRef, useState } from 'react';
@@ -23,6 +24,7 @@ import { canSaveTrackOffline, resolveOfflineAudioUrl } from '../lib/offlineVault
 import { isNativeAndroid, resolveApiUrl } from '../lib/apiConfig';
 import { resolveTrackFallback } from '../api';
 import { AuraMedia3, canUseNativeMedia3 } from '../lib/nativeAudioBridge';
+import { ECHO_COVERS } from './echoCovers';
 
 interface PlayerProps {
   currentTrack: Track | null;
@@ -44,6 +46,12 @@ interface PlayerProps {
   isOfflineSaved?: boolean;
   isSavingOffline?: boolean;
   onToggleSaveOffline?: (track: Track) => void;
+  queue?: Track[];
+  upcomingFallback?: Track[];
+  onPlayTrackFromQueue?: (track: Track) => void;
+  onReorderQueue?: (fromIndex: number, toIndex: number) => void;
+  onRemoveFromQueue?: (index: number) => void;
+  onClearQueue?: () => void;
 }
 
 interface DocumentPiPWindowApi {
@@ -71,13 +79,20 @@ export default function Player({
   isOfflineSaved = false,
   isSavingOffline = false,
   onToggleSaveOffline,
+  queue = [],
+  upcomingFallback = [],
+  onPlayTrackFromQueue,
+  onReorderQueue,
+  onRemoveFromQueue,
+  onClearQueue,
 }: PlayerProps) {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
-  const [isMobileNowPlayingOpen, setIsMobileNowPlayingOpen] = useState(false);
+  const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const [isPiPOpen, setIsPiPOpen] = useState(false);
   const [resolvedPlaybackUrl, setResolvedPlaybackUrl] = useState<string | null>(null);
+  const [hoverProgressPct, setHoverProgressPct] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -129,7 +144,6 @@ export default function Player({
     }
   };
 
-  // Resolve IndexedDB Blob URL first (for offline-saved & imported local files), then fall back to remote streamUrl
   useEffect(() => {
     let cancelled = false;
     if (!currentTrack) {
@@ -197,14 +211,12 @@ export default function Player({
     setDuration(currentTrack?.duration ? currentTrack.duration / 1000 : 0);
   }, [currentTrack?.id]);
 
-  // Immediate fallback if a non-local track somehow lacks a stream URL
   useEffect(() => {
     if (currentTrack && isPlaying && !isDirectAudio && currentTrack.source !== 'local') {
       attemptTrackFallback();
     }
   }, [currentTrack?.id, isPlaying, isDirectAudio]);
 
-  // Pre-warm next track URL cleanly once current track reaches >= 65%
   useEffect(() => {
     if (!nextTrack?.id || !nextTrack.streamUrl || duration <= 0) return;
     if (progress / duration < 0.65) return;
@@ -221,7 +233,6 @@ export default function Player({
     }
   }, [progress, duration, nextTrack?.id, nextTrack?.streamUrl]);
 
-  // Watchdog: if HTML5 direct stream playback stays stuck at 0:00, recover via direct-stream fallback
   useEffect(() => {
     if (!currentTrack || !isPlaying || !isDirectAudio || usingNativeMedia3 || currentTrack.source === 'local') return;
     const timer = setTimeout(() => {
@@ -233,7 +244,6 @@ export default function Player({
     return () => clearTimeout(timer);
   }, [currentTrack?.id, isPlaying, isDirectAudio, usingNativeMedia3]);
 
-  // Maintain uninterrupted native web background audio across tab switches, screen lock & network reconnects
   useEffect(() => {
     if (usingNativeMedia3) return;
 
@@ -265,7 +275,6 @@ export default function Player({
     };
   }, [isPlaying, isDirectAudio, usingNativeMedia3]);
 
-  // Periodic heartbeat ensuring background HTML5 audio never silently drops on web/PWA
   useEffect(() => {
     if (!isPlaying || !isDirectAudio || usingNativeMedia3) return;
     const heartbeat = setInterval(() => {
@@ -276,9 +285,8 @@ export default function Player({
     return () => clearInterval(heartbeat);
   }, [isPlaying, isDirectAudio, usingNativeMedia3]);
 
-  // Keep screen awake ONLY when actively displaying live synced lyrics or expanded mobile now-playing
   useEffect(() => {
-    const shouldLock = isPlaying && (rightSidebarView === 'lyrics' || isMobileNowPlayingOpen);
+    const shouldLock = isPlaying && (rightSidebarView === 'lyrics' || isNowPlayingOpen);
     if (!shouldLock || !('wakeLock' in navigator)) return;
 
     let wakeLockSentinel: { release: () => Promise<void> } | null = null;
@@ -305,9 +313,8 @@ export default function Player({
         wakeLockSentinel.release().catch(() => {});
       }
     };
-  }, [isPlaying, rightSidebarView, isMobileNowPlayingOpen]);
+  }, [isPlaying, rightSidebarView, isNowPlayingOpen]);
 
-  // Background Media Session Integration for Web / PWA Lock Screen & Notification controls
   useEffect(() => {
     if (usingNativeMedia3) return;
     if ('mediaSession' in navigator && currentTrack) {
@@ -381,7 +388,6 @@ export default function Player({
     }
   }, [currentTrack?.id, onPlayPause, onNext, onPrev, isPlaying, usingNativeMedia3]);
 
-  // Update MediaSession position state when progress changes
   useEffect(() => {
     if (usingNativeMedia3) return;
     if ('mediaSession' in navigator && 'setPositionState' in navigator.mediaSession && duration > 0) {
@@ -397,7 +403,6 @@ export default function Player({
     }
   }, [progress, duration, usingNativeMedia3]);
 
-  // Subscribe to native Android Media3 foreground service events
   useEffect(() => {
     if (!isNativeAndroid()) return;
     let disposed = false;
@@ -465,7 +470,6 @@ export default function Player({
     };
   }, []);
 
-  // Native Android Media3 OR Web HTML5 Audio & HLS streaming lifecycle
   useEffect(() => {
     const audio = audioRef.current;
 
@@ -597,7 +601,6 @@ export default function Player({
     }
   }, [currentTrack?.id, activeStreamUrl, isPlaying, isDirectAudio, usingNativeMedia3]);
 
-  // Listen to seeking from lyrics or external events
   useEffect(() => {
     const handleSeek = (e: Event) => {
       const time = (e as CustomEvent).detail;
@@ -614,12 +617,11 @@ export default function Player({
     return () => window.removeEventListener('playerSeek', handleSeek);
   }, []);
 
-  // Desktop Always-on-Top Mini Controller via Document Picture-in-Picture API
   const renderPiPContent = (pipWin: Window) => {
     const doc = pipWin.document;
     doc.body.innerHTML = '';
     doc.body.style.cssText =
-      'margin:0;background:#121212;color:#fff;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:space-between;padding:14px;gap:12px;height:100vh;box-sizing:border-box;user-select:none;';
+      'margin:0;background:#080808;color:#fff;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:space-between;padding:14px;gap:12px;height:100vh;box-sizing:border-box;user-select:none;';
 
     const left = doc.createElement('div');
     left.style.cssText = 'display:flex;align-items:center;gap:10px;min-width:0;flex:1;';
@@ -637,7 +639,7 @@ export default function Player({
 
     const artistEl = doc.createElement('div');
     artistEl.textContent = `${currentTrack?.artist || 'Select a track'} · ${getSourceLabel(currentTrack?.source)}`;
-    artistEl.style.cssText = 'font-size:11px;color:#b3b3b3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;';
+    artistEl.style.cssText = 'font-size:11px;color:#A3A3A3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;';
 
     meta.appendChild(titleEl);
     meta.appendChild(artistEl);
@@ -651,8 +653,8 @@ export default function Player({
       const btn = doc.createElement('button');
       btn.textContent = label;
       btn.style.cssText = primary
-        ? 'width:36px;height:36px;border-radius:9999px;border:none;background:#1db954;color:#000;font-weight:800;font-size:13px;cursor:pointer;'
-        : 'width:30px;height:30px;border-radius:9999px;border:1px solid rgba(255,255,255,0.15);background:#242424;color:#fff;font-size:11px;cursor:pointer;';
+        ? 'width:36px;height:36px;border-radius:9999px;border:none;background:#FFFFFF;color:#000000;font-weight:800;font-size:12px;cursor:pointer;'
+        : 'width:32px;height:32px;border-radius:9999px;border:1px solid #303030;background:#191919;color:#FFFFFF;font-size:11px;cursor:pointer;';
       btn.addEventListener('click', onClick);
       return btn;
     };
@@ -690,7 +692,6 @@ export default function Player({
         setIsPiPOpen(false);
       });
     } catch {
-      // Gracefully ignore when iframe sandbox restricts Document PiP
       setIsPiPOpen(false);
     }
   };
@@ -706,14 +707,17 @@ export default function Player({
     window.dispatchEvent(new CustomEvent('playerProgress', { detail: time }));
   };
 
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const vol = Number(e.target.value);
+  const applyVolume = (vol: number) => {
     setVolume(vol);
     if (usingNativeMedia3Ref.current) {
       AuraMedia3.setVolume({ volume: vol }).catch(() => {});
     } else if (audioRef.current) {
       audioRef.current.volume = vol;
     }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    applyVolume(Number(e.target.value));
   };
 
   const formatTime = (time: number) => {
@@ -725,10 +729,10 @@ export default function Player({
 
   const sourceLabel = getSourceLabel(currentTrack?.source);
   const canOfflineSave = canSaveTrackOffline(currentTrack);
+  const barCoverUrl = currentTrack?.coverUrl || ECHO_COVERS.global;
 
   return (
     <>
-      {/* Native HTML5 Audio: Strictly Direct Background MP3/AAC/HLS/Blob Playback */}
       <audio
         ref={audioRef}
         playsInline
@@ -827,60 +831,128 @@ export default function Player({
         }}
       />
 
-      {/* Floating Mobile Mini-Player (md:hidden) */}
+      {/* Mobile Floating Glass Mini-Player Bar with Blurred Mixed Thumbnail Colors */}
       {currentTrack && (
         <div
-          onClick={() => setIsMobileNowPlayingOpen(true)}
-          className="fixed bottom-[68px] left-2.5 right-2.5 z-40 bg-[#1D1F27]/95 backdrop-blur-xl hover:bg-[#252833] rounded-2xl h-[60px] flex items-center justify-between px-3 shadow-[0_12px_32px_rgba(0,0,0,0.75)] md:hidden cursor-pointer border border-white/[0.08] active:scale-[0.99] transition-transform select-none"
+          role="button"
+          tabIndex={0}
+          onClick={() => setIsNowPlayingOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setIsNowPlayingOpen(true);
+            }
+          }}
+          aria-label={`Open Now Playing: ${currentTrack.title} by ${currentTrack.artist}`}
+          className="fixed bottom-[68px] left-3 right-3 z-40 rounded-2xl h-[64px] flex items-center justify-between px-3 md:hidden cursor-pointer active:scale-[0.99] transition-transform duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none overflow-hidden shadow-[0_14px_38px_rgba(0,0,0,0.88)]"
         >
-          {/* Left: Thumbnail & Song Info */}
-          <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0 pr-2">
+          {/* Dynamic Thumbnail Color-Mixture Blurred Glass Rear Backdrop */}
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl bg-[#090909]">
             <img
-              src={currentTrack.coverUrl}
+              src={barCoverUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+              }}
+              className="absolute -left-6 -top-10 w-[75%] h-[230%] object-cover object-left-top scale-125 blur-[26px] saturate-[2.0] opacity-90 transition-opacity duration-500"
+            />
+            <img
+              src={barCoverUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+              }}
+              className="absolute -right-6 -bottom-10 w-[75%] h-[230%] object-cover object-right-bottom rotate-180 scale-125 blur-[30px] saturate-[2.1] opacity-75 mix-blend-screen transition-opacity duration-500"
+            />
+            <img
+              src={barCoverUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+              }}
+              className="absolute inset-0 w-full h-full object-cover object-center scale-150 blur-[36px] saturate-[1.7] opacity-60"
+            />
+            <div className="absolute inset-0 bg-black/36 backdrop-blur-2xl" />
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/[0.15] via-white/[0.02] to-black/38 border border-white/[0.18] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]" />
+          </div>
+
+          {/* Original-Color Rounded Square Artwork + Clear Title & Artist */}
+          <div className="relative z-10 flex items-center gap-3 overflow-hidden flex-1 min-w-0 pr-2">
+            <img
+              src={barCoverUrl}
               alt={currentTrack.title}
               referrerPolicy="no-referrer"
-              className="w-10 h-10 rounded-xl object-cover shadow flex-shrink-0"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+              }}
+              className="w-11 h-11 rounded-lg object-cover shrink-0 shadow-[0_4px_14px_rgba(0,0,0,0.55)] ring-1 ring-white/15"
             />
-            <div className="truncate flex-1 min-w-0">
-              <h4 className="text-xs font-bold text-white truncate">{currentTrack.title}</h4>
-              <p className="text-[11px] text-white/60 truncate mt-0.5">{currentTrack.artist}</p>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h4 className="text-[13px] font-semibold text-white truncate leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+                  {currentTrack.title}
+                </h4>
+              </div>
+              <p className="text-[11px] text-white/75 truncate mt-0.5 leading-tight">
+                {currentTrack.artist}
+              </p>
             </div>
           </div>
 
-          {/* Right: Accessible 44x44px Mobile Actions */}
-          <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          {/* Translucent Glass Controls: Favourite · Play/Pause · Next */}
+          <div className="relative z-10 flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
             <button
+              type="button"
               onClick={onToggleLike}
-              className="w-11 h-11 flex items-center justify-center rounded-full text-white/75 active:scale-90 transition"
-              aria-label="Like song"
+              className="w-10 h-10 flex items-center justify-center rounded-full text-white/80 hover:text-white hover:bg-white/15 active:scale-90 transition cursor-pointer"
+              aria-label={isLiked ? 'Remove from Favourites' : 'Save to Favourites'}
             >
-              <Heart className={`w-4 h-4 ${isLiked ? 'fill-[#F43F5E] text-[#F43F5E]' : 'hover:text-white'}`} />
+              <Heart className={`w-[18px] h-[18px] ${isLiked ? 'fill-white text-white' : ''}`} />
             </button>
+
             <button
+              type="button"
               onClick={onPlayPause}
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-[#F43F5E] text-white active:scale-90 transition shadow-md shadow-rose-500/25"
+              className={`w-10 h-10 flex items-center justify-center rounded-full active:scale-90 transition cursor-pointer ${
+                isPlaying
+                  ? 'bg-white text-black shadow-md'
+                  : 'bg-white/15 text-white border border-white/25 backdrop-blur-md hover:bg-white hover:text-black'
+              }`}
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? (
-                <Pause className="w-4 h-4 fill-current" />
+                <Pause className="w-[18px] h-[18px] fill-current" />
               ) : (
-                <Play className="w-4 h-4 fill-current ml-0.5" />
+                <Play className="w-[18px] h-[18px] fill-current ml-0.5" />
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={onNext}
+              className="w-10 h-10 flex items-center justify-center rounded-full text-white/80 hover:text-white hover:bg-white/15 active:scale-90 transition cursor-pointer"
+              aria-label="Next track"
+            >
+              <SkipForward className="w-[18px] h-[18px] fill-current" />
             </button>
           </div>
 
-          {/* Bottom Scrub Progress Line */}
-          <div className="absolute bottom-0 left-2 right-2 h-[2.5px] bg-white/10 rounded-b-2xl overflow-hidden">
+          {/* Thin Progress Indicator */}
+          <div className="absolute z-10 bottom-0 left-3 right-3 h-[2px] bg-white/15 rounded-full overflow-hidden">
             <div
-              className="h-full bg-[#FACC15] rounded-full transition-all duration-300"
+              className="h-full bg-white rounded-full transition-[width] duration-200 shadow-[0_0_8px_rgba(255,255,255,0.45)]"
               style={{ width: `${Math.min(100, (progress / (duration || 1)) * 100)}%` }}
             />
           </div>
         </div>
       )}
 
-      {/* Full-Screen Mobile Now Playing View */}
-      {isMobileNowPlayingOpen && currentTrack && (
+      {/* Expanded Full-Screen Player (Mobile & Desktop) */}
+      {isNowPlayingOpen && currentTrack && (
         <MobileNowPlaying
           currentTrack={currentTrack}
           isPlaying={isPlaying}
@@ -891,52 +963,130 @@ export default function Player({
           onToggleShuffle={onToggleShuffle}
           repeatMode={repeatMode}
           onToggleRepeat={onToggleRepeat}
-          onClose={() => setIsMobileNowPlayingOpen(false)}
+          onClose={() => setIsNowPlayingOpen(false)}
           isLiked={isLiked}
           onToggleLike={onToggleLike}
+          volume={volume}
+          onVolumeChange={applyVolume}
+          queue={queue}
+          upcomingFallback={upcomingFallback}
+          onPlayTrackFromQueue={onPlayTrackFromQueue}
+          onReorderQueue={onReorderQueue}
+          onRemoveFromQueue={onRemoveFromQueue}
+          onClearQueue={onClearQueue}
+          isOfflineSaved={isOfflineSaved}
+          isSavingOffline={isSavingOffline}
+          onToggleSaveOffline={onToggleSaveOffline}
         />
       )}
 
-      {/* Desktop Player Bar (hidden md:flex) */}
-      <div className="hidden md:flex h-[90px] bg-[#0D0E12] border-t border-white/[0.07] items-center justify-between px-4 z-50 text-white select-none">
-        {/* Track Info */}
-        <div className="w-[30%] min-w-[200px] flex items-center gap-3.5">
+      {/* Desktop Floating Glass Music Bar with Blurred Mixed Thumbnail Colors */}
+      <div className="hidden md:flex relative h-[84px] mx-3 mb-3 rounded-2xl shadow-[0_16px_44px_rgba(0,0,0,0.85)] items-center justify-between px-4 z-50 text-white select-none">
+        {/* Dynamic Thumbnail Color-Mixture Blurred Glass Rear Backdrop */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl bg-[#090909]"
+        >
           {currentTrack ? (
             <>
               <img
-                src={currentTrack.coverUrl}
-                alt={currentTrack.title}
+                src={barCoverUrl}
+                alt=""
                 referrerPolicy="no-referrer"
-                className="w-14 h-14 rounded-xl shadow-lg object-cover flex-shrink-0"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+                }}
+                className="absolute -left-10 -top-12 w-[70%] h-[240%] object-cover object-left-top scale-125 blur-[36px] saturate-[2.0] opacity-90 transition-opacity duration-700"
               />
-              <div className="overflow-hidden flex flex-col justify-center min-w-0">
-                <h4 className="text-sm font-bold truncate hover:underline cursor-pointer text-white">{currentTrack.title}</h4>
-                <p className="text-[11px] text-white/60 truncate">
-                  {currentTrack.artist} · <span className="text-[#FACC15] font-semibold">{sourceLabel}</span>
-                </p>
-              </div>
+              <img
+                src={barCoverUrl}
+                alt=""
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+                }}
+                className="absolute -right-10 -bottom-12 w-[70%] h-[240%] object-cover object-right-bottom rotate-180 scale-125 blur-[40px] saturate-[2.1] opacity-75 mix-blend-screen transition-opacity duration-700"
+              />
+              <img
+                src={barCoverUrl}
+                alt=""
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+                }}
+                className="absolute left-[15%] -top-10 w-[70%] h-[220%] object-cover object-center scale-150 blur-[46px] saturate-[1.7] opacity-60 transition-opacity duration-700"
+              />
+              <div className="absolute inset-0 bg-black/36 backdrop-blur-2xl" />
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/[0.14] via-white/[0.02] to-black/38 border border-white/[0.18] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]" />
+            </>
+          ) : (
+            <div className="absolute inset-0 rounded-2xl bg-[#111111]/95 backdrop-blur-xl border border-[#2A2A2A]" />
+          )}
+        </div>
+
+        {/* Left: Original-Color Artwork + Track Identity + Favourite & Offline */}
+        <div className="relative z-10 w-[30%] min-w-[220px] flex items-center gap-3.5">
+          {currentTrack ? (
+            <>
               <button
-                onClick={onToggleLike}
-                className="text-white/60 hover:text-white ml-1 transition cursor-pointer flex-shrink-0"
-                title={isLiked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-                aria-label="Toggle like"
+                type="button"
+                onClick={() => setIsNowPlayingOpen(true)}
+                className="relative group shrink-0 cursor-pointer rounded-xl overflow-hidden shadow-[0_6px_18px_rgba(0,0,0,0.55)] ring-1 ring-white/15 transition-transform duration-150 hover:scale-[1.03]"
+                title="Expand Now Playing"
+                aria-label="Expand Now Playing"
               >
-                <Heart className={`w-4 h-4 ${isLiked ? 'fill-[#F43F5E] text-[#F43F5E]' : ''}`} />
+                <img
+                  src={barCoverUrl}
+                  alt={currentTrack.title}
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+                  }}
+                  className="w-13 h-13 object-cover"
+                />
+                <div className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-150">
+                  <Maximize2 className="w-4 h-4 text-white" />
+                </div>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsNowPlayingOpen(true)}
+                className="overflow-hidden flex flex-col justify-center min-w-0 text-left cursor-pointer flex-1 group"
+              >
+                <h4 className="text-sm font-semibold truncate text-white group-hover:underline drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+                  {currentTrack.title}
+                </h4>
+                <p className="text-xs text-white/75 truncate mt-0.5">
+                  {currentTrack.artist} · {sourceLabel}
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={onToggleLike}
+                className="w-9 h-9 flex items-center justify-center rounded-full text-white/75 hover:text-white hover:bg-white/15 transition cursor-pointer shrink-0 active:scale-90"
+                title={isLiked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+                aria-label="Toggle favourite"
+              >
+                <Heart className={`w-4 h-4 ${isLiked ? 'fill-white text-white' : ''}`} />
+              </button>
+
               {canOfflineSave && onToggleSaveOffline && currentTrack.source !== 'local' && (
                 <button
+                  type="button"
                   onClick={() => onToggleSaveOffline(currentTrack)}
                   disabled={isSavingOffline}
-                  className={`transition cursor-pointer flex-shrink-0 ${
-                    isOfflineSaved ? 'text-[#FACC15]' : 'text-white/60 hover:text-white'
+                  className={`w-9 h-9 flex items-center justify-center rounded-full hover:bg-white/15 transition cursor-pointer shrink-0 active:scale-90 ${
+                    isOfflineSaved ? 'text-white' : 'text-white/75 hover:text-white'
                   }`}
-                  title={isOfflineSaved ? 'Saved offline in device vault (click to remove)' : 'Save offline for zero-internet playback'}
+                  title={isOfflineSaved ? 'Saved offline (click to remove)' : 'Save for offline playback'}
                   aria-label="Toggle offline save"
                 >
                   {isSavingOffline ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-[#FACC15]" />
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
                   ) : isOfflineSaved ? (
-                    <CheckCircle2 className="w-4 h-4" />
+                    <CheckCircle2 className="w-4 h-4 text-white" />
                   ) : (
                     <Download className="w-4 h-4" />
                   )}
@@ -944,109 +1094,203 @@ export default function Player({
               )}
             </>
           ) : (
-            <div className="text-xs text-white/45 font-medium">Select an official song to begin background playback</div>
+            <div className="text-xs text-[#A3A3A3] font-medium">
+              Select a song to start listening
+            </div>
           )}
         </div>
 
-        {/* Controls */}
-        <div className="flex-1 max-w-[722px] flex flex-col items-center gap-2">
-          <div className="flex items-center gap-6">
+        {/* Center: Clean Frosted Glass Transport & Thin Progress Bar */}
+        <div className="relative z-10 flex-1 max-w-[640px] flex flex-col items-center gap-2">
+          <div className="flex items-center gap-4">
             <button
+              type="button"
               onClick={onToggleShuffle}
-              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${isShuffle ? 'text-[#FACC15]' : 'text-white/60 hover:text-white'}`}
+              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 transition relative cursor-pointer active:scale-90 ${
+                isShuffle ? 'text-white bg-white/12' : 'text-white/70 hover:text-white'
+              }`}
               aria-label="Shuffle"
             >
               <Shuffle className="w-4 h-4" />
-              {isShuffle && <div className="absolute -bottom-1 w-1 h-1 bg-[#FACC15] rounded-full"></div>}
+              {isShuffle && <div className="absolute -bottom-0.5 w-1 h-1 bg-white rounded-full" />}
             </button>
-            <button onClick={onPrev} className="text-white/70 hover:text-white transition cursor-pointer" aria-label="Previous track">
-              <SkipBack className="w-5 h-5 fill-current" />
-            </button>
+
             <button
+              type="button"
+              onClick={onPrev}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-white/80 hover:text-white hover:bg-white/15 transition cursor-pointer active:scale-90"
+              aria-label="Previous track"
+            >
+              <SkipBack className="w-4 h-4 fill-current" />
+            </button>
+
+            <button
+              type="button"
               onClick={onPlayPause}
-              className="w-9 h-9 rounded-full bg-[#F43F5E] hover:bg-[#FB7185] text-white flex items-center justify-center hover:scale-105 transition transform cursor-pointer shadow-lg shadow-rose-500/25"
+              className={`w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-transform duration-150 active:scale-90 ${
+                isPlaying
+                  ? 'bg-white text-black shadow-md'
+                  : 'bg-white/15 text-white border border-white/25 backdrop-blur-md hover:bg-white hover:text-black'
+              }`}
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
             </button>
-            <button onClick={onNext} className="text-white/70 hover:text-white transition cursor-pointer" aria-label="Next track">
-              <SkipForward className="w-5 h-5 fill-current" />
-            </button>
+
             <button
+              type="button"
+              onClick={onNext}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-white/80 hover:text-white hover:bg-white/15 transition cursor-pointer active:scale-90"
+              aria-label="Next track"
+            >
+              <SkipForward className="w-4 h-4 fill-current" />
+            </button>
+
+            <button
+              type="button"
               onClick={onToggleRepeat}
-              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${repeatMode !== 'off' ? 'text-[#FACC15]' : 'text-white/60 hover:text-white'}`}
+              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 transition relative cursor-pointer active:scale-90 ${
+                repeatMode !== 'off' ? 'text-white bg-white/12' : 'text-white/70 hover:text-white'
+              }`}
               aria-label="Repeat"
             >
               <Repeat className="w-4 h-4" />
-              {repeatMode === 'one' && <span className="absolute text-[8px] font-bold bg-[#181A22] rounded-full w-3 h-3 flex items-center justify-center right-[5px] top-[14px]">1</span>}
-              {repeatMode !== 'off' && <div className="absolute -bottom-1 w-1 h-1 bg-[#FACC15] rounded-full"></div>}
+              {repeatMode === 'one' && (
+                <span className="absolute text-[8px] font-bold bg-white text-black rounded-full w-3 h-3 flex items-center justify-center right-0 top-0">
+                  1
+                </span>
+              )}
+              {repeatMode !== 'off' && <div className="absolute -bottom-0.5 w-1 h-1 bg-white rounded-full" />}
             </button>
           </div>
-          <div className="flex items-center gap-2 w-full max-w-md text-[11px] text-white/55 font-medium group tabular-nums">
+
+          <div className="flex items-center gap-3 w-full max-w-md text-[11px] text-white/75 font-medium group tabular-nums">
             <span className="w-10 text-right">{formatTime(progress)}</span>
-            <input
-              type="range"
-              min={0}
-              max={duration || 100}
-              value={progress}
-              onChange={handleSeekChange}
-              aria-label="Seek progress"
-              className="flex-1 h-1 bg-white/15 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-[#FACC15] [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:opacity-0 group-hover:[&::-webkit-slider-thumb]:opacity-100 transition-all"
-              style={{
-                background: `linear-gradient(to right, ${currentTrack ? '#FACC15' : '#4b5563'} ${(progress / (duration || 1)) * 100}%, rgba(255,255,255,0.16) ${(progress / (duration || 1)) * 100}%)`,
+            <div
+              className="relative flex-1 flex items-center h-4"
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pct = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100));
+                setHoverProgressPct(pct);
               }}
-            />
+              onMouseLeave={() => setHoverProgressPct(null)}
+            >
+              {hoverProgressPct !== null && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#141414]/95 backdrop-blur-md border border-white/15 text-[10px] font-semibold text-white shadow-lg whitespace-nowrap"
+                  style={{ left: `${hoverProgressPct}%` }}
+                >
+                  {formatTime((hoverProgressPct / 100) * (duration || 0))}
+                </div>
+              )}
+              <div className="w-full h-[3px] group-hover:h-1 bg-white/20 rounded-full overflow-hidden transition-all duration-150">
+                <div
+                  className="h-full bg-white rounded-full transition-[width] duration-150"
+                  style={{ width: `${Math.min(100, (progress / (duration || 1)) * 100)}%` }}
+                />
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={duration || 100}
+                value={progress}
+                onChange={handleSeekChange}
+                aria-label="Seek progress"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white shadow scale-0 group-hover:scale-100 transition-transform duration-150"
+                style={{ left: `${Math.min(100, (progress / (duration || 1)) * 100)}%` }}
+              />
+            </div>
             <span className="w-10 text-left">{formatTime(duration)}</span>
           </div>
         </div>
 
-        {/* Extras / PiP / Volume */}
-        <div className="w-[30%] min-w-[200px] flex items-center justify-end gap-1 text-white/60">
+        {/* Right: Lyrics · Queue · Expand · PiP · Volume */}
+        <div className="relative z-10 w-[30%] min-w-[200px] flex items-center justify-end gap-1 text-white/75">
           <button
+            type="button"
             onClick={() => onToggleRightSidebar('lyrics')}
-            className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${rightSidebarView === 'lyrics' ? 'text-[#FACC15]' : 'hover:text-white'}`}
-            title="Synchronized Lyrics"
+            className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 transition relative cursor-pointer active:scale-90 ${
+              rightSidebarView === 'lyrics' ? 'text-white bg-white/15' : 'hover:text-white'
+            }`}
+            title="Lyrics"
             aria-label="Toggle lyrics"
           >
             <Mic2 className="w-4 h-4" />
-            {rightSidebarView === 'lyrics' && <div className="absolute -bottom-1 w-1 h-1 bg-[#FACC15] rounded-full"></div>}
+            {rightSidebarView === 'lyrics' && <div className="absolute -bottom-0.5 w-1 h-1 bg-white rounded-full" />}
           </button>
           <button
+            type="button"
             onClick={() => onToggleRightSidebar('queue')}
-            className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition relative cursor-pointer ${rightSidebarView === 'queue' ? 'text-[#FACC15]' : 'hover:text-white'}`}
-            title="Play Queue"
+            className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 transition relative cursor-pointer active:scale-90 ${
+              rightSidebarView === 'queue' ? 'text-white bg-white/15' : 'hover:text-white'
+            }`}
+            title="Queue"
             aria-label="Toggle queue"
           >
             <ListMusic className="w-4 h-4" />
-            {rightSidebarView === 'queue' && <div className="absolute -bottom-1 w-1 h-1 bg-[#FACC15] rounded-full"></div>}
+            {rightSidebarView === 'queue' && <div className="absolute -bottom-0.5 w-1 h-1 bg-white rounded-full" />}
           </button>
+          {currentTrack && (
+            <button
+              type="button"
+              onClick={() => setIsNowPlayingOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 hover:text-white transition cursor-pointer active:scale-90"
+              title="Expand Now Playing"
+              aria-label="Expand Now Playing"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          )}
           {supportsDocumentPiP && (
             <button
+              type="button"
               onClick={handleToggleDocumentPiP}
-              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition cursor-pointer ${isPiPOpen ? 'text-[#FACC15]' : 'hover:text-white'}`}
-              title="Open Floating Mini Controller"
+              className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 transition cursor-pointer active:scale-90 ${
+                isPiPOpen ? 'text-white bg-white/15' : 'hover:text-white'
+              }`}
+              title="Floating Mini Controller"
               aria-label="Toggle floating mini player"
             >
               <PictureInPicture2 className="w-4 h-4" />
             </button>
           )}
-          <div className="w-8 h-8 flex items-center justify-center" title="Direct Background Audio Active">
-            <MonitorSpeaker className="w-4 h-4 text-[#FACC15]" />
+
+          <button
+            type="button"
+            onClick={() => applyVolume(volume > 0 ? 0 : 1)}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 hover:text-white transition cursor-pointer ml-1 active:scale-90"
+            aria-label={volume === 0 ? 'Unmute' : 'Mute'}
+          >
+            {volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+          <div className="relative w-[84px] h-4 flex items-center group">
+            <div className="w-full h-[3px] group-hover:h-1 bg-white/20 rounded-full overflow-hidden transition-all duration-150">
+              <div
+                className="h-full bg-white rounded-full"
+                style={{ width: `${volume * 100}%` }}
+              />
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={handleVolumeChange}
+              aria-label="Volume"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white shadow scale-0 group-hover:scale-100 transition-transform duration-150"
+              style={{ left: `${volume * 100}%` }}
+            />
           </div>
-          <Volume2 className="w-5 h-5 hover:text-white cursor-pointer transition ml-1 flex-shrink-0" />
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={volume}
-            onChange={handleVolumeChange}
-            aria-label="Volume"
-            className="w-[88px] h-1 bg-white/15 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:opacity-0 hover:[&::-webkit-slider-thumb]:opacity-100 transition-all group"
-            style={{
-              background: `linear-gradient(to right, #fff ${volume * 100}%, rgba(255,255,255,0.16) ${volume * 100}%)`,
-            }}
-          />
         </div>
       </div>
     </>

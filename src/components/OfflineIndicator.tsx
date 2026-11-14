@@ -29,9 +29,9 @@ export const OfflineIndicator: React.FC = () => {
     <div
       role="status"
       aria-live="polite"
-      className="flex items-center justify-center gap-2 bg-amber-500/15 border-b border-amber-500/30 px-4 py-1.5 text-xs font-semibold text-amber-200 flex-shrink-0"
+      className="flex items-center justify-center gap-2 bg-[#191919] border-b border-[#303030] px-4 py-1.5 text-xs font-semibold text-white flex-shrink-0"
     >
-      <WifiOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+      <WifiOff className="w-3.5 h-3.5 text-[#A3A3A3] flex-shrink-0" />
       <span className="truncate">Offline Mode — Playing saved &amp; local audio tracks</span>
     </div>
   );

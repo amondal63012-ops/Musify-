@@ -1,9 +1,10 @@
 import React from 'react';
 import { Home, Search, Library } from 'lucide-react';
+import { AppView } from '../types';
 
 interface MobileBottomNavProps {
   currentView: string;
-  onViewChange: (view: 'home' | 'search' | 'library' | 'viral' | 'artists') => void;
+  onViewChange: (view: AppView) => void;
   onOpenSearch?: () => void;
 }
 
@@ -17,14 +18,20 @@ export default function MobileBottomNav({
       id: 'home' as const,
       label: 'Home',
       icon: Home,
-      isActive: currentView === 'home' || currentView === 'viral' || currentView === 'charts',
+      isActive:
+        currentView === 'home' ||
+        currentView === 'explore' ||
+        currentView === 'viral' ||
+        currentView === 'charts' ||
+        currentView === 'artists' ||
+        currentView === 'artist',
       onClick: () => onViewChange('home'),
     },
     {
       id: 'search' as const,
       label: 'Search',
       icon: Search,
-      isActive: currentView === 'search' || currentView === 'artists' || currentView === 'artist',
+      isActive: currentView === 'search',
       onClick: () => {
         onViewChange('search');
         onOpenSearch?.();
@@ -32,41 +39,53 @@ export default function MobileBottomNav({
     },
     {
       id: 'library' as const,
-      label: 'Library',
+      label: 'Your Library',
       icon: Library,
-      isActive: currentView === 'library' || currentView === 'playlist',
+      isActive:
+        currentView === 'library' ||
+        currentView === 'playlist' ||
+        currentView === 'profile' ||
+        currentView === 'settings' ||
+        currentView === 'queue',
       onClick: () => onViewChange('library'),
     },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#13141A]/95 backdrop-blur-xl border-t border-white/[0.08] min-h-[64px] pb-safe flex items-center justify-around px-6 select-none md:hidden">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        return (
-          <button
-            key={tab.id}
-            onClick={tab.onClick}
-            className={`flex flex-col items-center justify-center min-w-[64px] min-h-[48px] py-1.5 transition-colors cursor-pointer ${
-              tab.isActive ? 'text-[#FACC15]' : 'text-white/50 hover:text-white/85'
-            }`}
-            aria-label={tab.label}
-          >
-            <Icon
-              className={`w-[22px] h-[22px] transition-transform ${
-                tab.isActive ? 'scale-105 stroke-[2.25px]' : 'stroke-[1.75px]'
+    <nav
+      aria-label="Mobile Navigation"
+      className="fixed bottom-0 left-0 right-0 z-40 bg-[#080808]/95 backdrop-blur-xl border-t border-[#303030]/70 px-4 pt-1.5 pb-[max(0.45rem,env(safe-area-inset-bottom))] select-none md:hidden"
+    >
+      <div className="grid grid-cols-3 items-center max-w-md mx-auto">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={tab.onClick}
+              className={`flex flex-col items-center justify-center min-h-[48px] py-1 transition-colors duration-150 cursor-pointer active:scale-95 ${
+                tab.isActive ? 'text-white' : 'text-[#737373] hover:text-[#A3A3A3]'
               }`}
-            />
-            <span
-              className={`text-[11px] tracking-tight mt-1 ${
-                tab.isActive ? 'font-bold text-[#FACC15]' : 'font-medium text-white/55'
-              }`}
+              aria-label={tab.label}
+              aria-current={tab.isActive ? 'page' : undefined}
             >
-              {tab.label}
-            </span>
-          </button>
-        );
-      })}
+              <Icon
+                className={`w-[22px] h-[22px] transition-transform duration-150 ${
+                  tab.isActive ? 'scale-105 stroke-[2.3px]' : 'stroke-[1.75px]'
+                }`}
+              />
+              <span
+                className={`text-[10px] tracking-tight mt-1 whitespace-nowrap shrink-0 ${
+                  tab.isActive ? 'font-semibold text-white' : 'font-medium text-[#737373]'
+                }`}
+              >
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </nav>
   );
 }
