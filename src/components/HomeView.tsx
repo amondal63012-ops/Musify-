@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { getCharts, getViralSongs, getArtists } from '../api';
 import { Track, Artist, Playlist, SavedAlbum, UserProfile } from '../types';
-import { ECHO_COVERS } from './echoCovers';
+import { ECHO_COVERS, POSTER_COVERS } from './echoCovers';
 import SectionHeader from './design/SectionHeader';
 import MusicCard from './design/MusicCard';
 import AlbumCard from './design/AlbumCard';
@@ -39,86 +39,29 @@ const RECOMMENDED_RADIO_MIXES = [
     id: 'radio-global',
     title: 'Global Hits Radio',
     subtitle: 'Official publisher anthems, pop leaders & live studio sessions',
-    coverUrl: ECHO_COVERS.global,
+    coverUrl: POSTER_COVERS.weekndCrimson,
     query: 'Global Top Hits Official',
   },
   {
     id: 'radio-bollywood',
     title: 'Bollywood Essential Radio',
     subtitle: 'Arijit Singh, Pritam, Shreya Ghoshal and modern soundtracks',
-    coverUrl: ECHO_COVERS.indie,
+    coverUrl: POSTER_COVERS.indiaVinyl,
     query: 'Bollywood Hindi Superhits',
   },
   {
     id: 'radio-glasswave',
     title: 'Midnight Electronic Radio',
     subtitle: 'Atmospheric electronic mixes & deep late-night instrumentals',
-    coverUrl: ECHO_COVERS.glasswave,
+    coverUrl: POSTER_COVERS.afterDark,
     query: 'Electronic Chill Official',
   },
   {
     id: 'radio-nightmix',
     title: 'Timeless Acoustic Radio',
     subtitle: 'Classic vocal tracks, acoustic guitar sessions & evergreens',
-    coverUrl: ECHO_COVERS.nightmix,
+    coverUrl: POSTER_COVERS.alessiVoyeur,
     query: '90s 2000s Classic Hits',
-  },
-];
-
-const MOOD_COLLECTIONS = [
-  {
-    id: 'mood-singalong',
-    sectionTitle: 'Sing-along',
-    items: [
-      {
-        id: 'sing-1',
-        title: 'Songs to Sing in the Shower',
-        subtitle: 'Upbeat chorus favorites & vocal classics',
-        coverUrl: ECHO_COVERS.global,
-        query: 'Pop Hits Sing Along Official',
-      },
-      {
-        id: 'sing-2',
-        title: 'Guilty Pleasures',
-        subtitle: 'Iconic throwback hits and chorus anthems',
-        coverUrl: ECHO_COVERS.indie,
-        query: 'Best Pop Throwback Hits',
-      },
-      {
-        id: 'sing-3',
-        title: 'Crowd Favorites',
-        subtitle: 'High-energy stadium vocal choruses',
-        coverUrl: ECHO_COVERS.glasswave,
-        query: 'Trending Vocal Hits Official',
-      },
-    ],
-  },
-  {
-    id: 'mood-chill',
-    sectionTitle: 'Chill',
-    items: [
-      {
-        id: 'chill-1',
-        title: 'Soft Pop & Lo-Fi',
-        subtitle: 'Warm ambient acoustic tracks for unwinding',
-        coverUrl: ECHO_COVERS.nightmix,
-        query: 'Chill Acoustic Lo-Fi Official',
-      },
-      {
-        id: 'chill-2',
-        title: 'Chill Hits',
-        subtitle: 'Laid-back tempo singles and late-night mixes',
-        coverUrl: ECHO_COVERS.glasswave,
-        query: 'Chill Hits Official',
-      },
-      {
-        id: 'chill-3',
-        title: 'Acoustic Mornings',
-        subtitle: 'Unplugged studio recordings & gentle piano',
-        coverUrl: ECHO_COVERS.indie,
-        query: 'Indie Acoustic Hits Official',
-      },
-    ],
   },
 ];
 
@@ -369,26 +312,6 @@ export default function HomeView({
           </div>
         </section>
       )}
-
-      {/* Editorial Mood Shelves: Sing-along & Chill (Screenshot 3 Section 5 & 6) */}
-      {(activeFilter === 'all' || activeFilter === 'music') &&
-        MOOD_COLLECTIONS.map((group) => (
-          <section key={group.id}>
-            <SectionHeader title={group.sectionTitle} />
-            <div className="flex overflow-x-auto gap-3.5 pb-1 scrollbar-none">
-              {group.items.map((item) => (
-                <div key={item.id} className="w-[144px] sm:w-[168px] shrink-0">
-                  <MusicCard
-                    title={item.title}
-                    subtitle={item.subtitle}
-                    coverUrl={item.coverUrl}
-                    onClick={() => onPlayContext(item.query)}
-                  />
-                </div>
-              ))}
-            </div>
-          </section>
-        ))}
 
       {/* New Releases */}
       {(activeFilter === 'all' || activeFilter === 'music') && newReleases.length > 0 && (

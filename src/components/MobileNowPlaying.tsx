@@ -31,6 +31,7 @@ import { directFetchLyrics } from '../lib/directMusicProvider';
 import { canSaveTrackOffline } from '../lib/offlineVault';
 import QueuePanel from './design/QueuePanel';
 import { ECHO_COVERS } from './echoCovers';
+import WavingProgressBar from './WavingProgressBar';
 
 interface MobileNowPlayingProps {
   currentTrack: Track | null;
@@ -104,17 +105,96 @@ export default function MobileNowPlaying({
   const timerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const touchStartYRef = useRef<number | null>(null);
+  const topLightRef = useRef<HTMLDivElement>(null);
+  const topRayRef = useRef<HTMLDivElement>(null);
+  const isPlayingRef = useRef(isPlaying);
+  const lastSyncRef = useRef<{ songSec: number; wallMs: number }>({
+    songSec: 0,
+    wallMs: typeof performance !== 'undefined' ? performance.now() : 0,
+  });
+  isPlayingRef.current = isPlaying;
+
+  const trackBpm = useMemo(() => {
+    if (!currentTrack) return 114;
+    const seedStr = `${currentTrack.id}-${currentTrack.title}`;
+    let hash = 0;
+    for (let i = 0; i < seedStr.length; i++) {
+      hash = (hash * 31 + seedStr.charCodeAt(i)) >>> 0;
+    }
+    return 96 + (hash % 36);
+  }, [currentTrack?.id, currentTrack?.title]);
 
   useEffect(() => {
     const handleProgress = (e: Event) => {
       const time = (e as CustomEvent).detail;
       if (typeof time === 'number') {
         setProgress(time);
+        lastSyncRef.current = { songSec: time, wallMs: performance.now() };
       }
     };
     window.addEventListener('playerProgress', handleProgress);
     return () => window.removeEventListener('playerProgress', handleProgress);
   }, []);
+
+  useEffect(() => {
+    lastSyncRef.current = { songSec: progress, wallMs: performance.now() };
+  }, [isPlaying, currentTrack?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    let rafId = 0;
+    let smoothedEnergy = isPlaying ? 0.35 : 0;
+    let lastNow = performance.now();
+
+    const applyLightStyles = (energy: number) => {
+      if (topLightRef.current) {
+        topLightRef.current.style.opacity = (0.16 + energy * 0.58).toFixed(3);
+        const sx = (0.94 + energy * 0.14).toFixed(3);
+        const sy = (0.9 + energy * 0.22).toFixed(3);
+        topLightRef.current.style.transform = `translate3d(-50%, 0, 0) scale(${sx}, ${sy})`;
+      }
+      if (topRayRef.current) {
+        topRayRef.current.style.opacity = (0.14 + energy * 0.5).toFixed(3);
+      }
+    };
+
+    if (reducedMotion) {
+      applyLightStyles(0.22);
+      return;
+    }
+
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, Math.max(0, (now - lastNow) / 1000));
+      lastNow = now;
+
+      let targetEnergy = 0;
+      if (isPlayingRef.current) {
+        const wallDelta = Math.min(0.4, Math.max(0, (now - lastSyncRef.current.wallMs) / 1000));
+        const liveSongSec = lastSyncRef.current.songSec + wallDelta;
+        const beatPos = (liveSongSec * (trackBpm / 60)) % 1;
+        const kick = Math.exp(-beatPos * 5.0);
+        const offBeat = 0.26 * Math.exp(-(((beatPos + 0.5) % 1) * 7.8));
+        targetEnergy = Math.min(1, kick + offBeat);
+      }
+
+      const blendRate = targetEnergy > smoothedEnergy ? 24 : 9;
+      smoothedEnergy += (targetEnergy - smoothedEnergy) * Math.min(1, dt * blendRate);
+      applyLightStyles(smoothedEnergy);
+
+      if (isPlayingRef.current || smoothedEnergy > 0.015) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        applyLightStyles(0);
+        rafId = 0;
+      }
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [isPlaying, trackBpm, currentTrack?.id]);
 
   useEffect(() => {
     if (currentTrack?.duration) {
@@ -284,8 +364,6 @@ export default function MobileNowPlaying({
       ? 'Local Lossless'
       : '320k Lossless';
 
-  const progressPct = Math.min(100, Math.max(0, (progress / (duration || 1)) * 100));
-
   const backdropCover = currentTrack.coverUrl || ECHO_COVERS.global;
 
   return (
@@ -343,6 +421,31 @@ export default function MobileNowPlaying({
           aria-hidden="true"
           className="absolute inset-0 bg-gradient-to-b from-white/[0.06] via-black/22 to-black/68"
         />
+
+        {/* Beat-Synced Top White Light Gradient Spotlight */}
+        <div
+          ref={topLightRef}
+          aria-hidden="true"
+          className="absolute -top-20 left-1/2 w-[135vw] max-w-[780px] h-[52vh] rounded-full blur-2xl mix-blend-screen will-change-[opacity,transform]"
+          style={{
+            opacity: 0.16,
+            transform: 'translate3d(-50%, 0, 0) scale(0.94, 0.9)',
+            background:
+              'radial-gradient(ellipse 68% 58% at 50% 10%, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.28) 38%, rgba(255,255,255,0.08) 65%, rgba(255,255,255,0) 100%)',
+          }}
+        />
+        <div
+          ref={topRayRef}
+          aria-hidden="true"
+          className="absolute top-0 inset-x-0 h-[36vh] mix-blend-screen will-change-[opacity]"
+          style={{
+            opacity: 0.14,
+            background:
+              'linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.12) 32%, rgba(255,255,255,0) 100%)',
+          }}
+        >
+          <div className="mx-auto w-[72%] h-[2px] bg-gradient-to-r from-transparent via-white/90 to-transparent blur-[1px]" />
+        </div>
       </div>
 
       {/* Subtle Glass Toast */}
@@ -561,30 +664,15 @@ export default function MobileNowPlaying({
 
       {/* SHARED BOTTOM CONTROLS DOCK (Consistent Frosted Glass across Artwork, Lyrics, Queue) */}
       <div className="relative z-20 px-7 sm:px-10 pb-6 pt-3 flex flex-col gap-5 max-w-lg w-full mx-auto shrink-0">
-        {/* Progress Scrubber + Centered Lossless Label + Elapsed / Duration Timestamps */}
+        {/* Waving Media Playback Progress Scrubber + Centered Lossless Label + Elapsed / Duration Timestamps */}
         <div className="flex flex-col gap-2">
-          <div className="relative flex items-center h-4 group">
-            <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-white rounded-full transition-[width] duration-150"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <input
-              type="range"
-              min="0"
-              max={duration || 100}
-              value={progress}
-              onChange={handleSeek}
-              aria-label="Seek playback position"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-            />
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white shadow"
-              style={{ left: `${progressPct}%` }}
-            />
-          </div>
+          <WavingProgressBar
+            progress={progress}
+            duration={duration}
+            isPlaying={isPlaying}
+            onSeekChange={handleSeek}
+            ariaLabel="Seek playback position"
+          />
 
           <div className="grid grid-cols-3 items-center text-[11px] font-medium text-white/75 tabular-nums">
             <span className="text-left">{formatTime(progress)}</span>

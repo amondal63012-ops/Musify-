@@ -1,6 +1,6 @@
 import React from 'react';
 import { Clock, TrendingUp, X } from 'lucide-react';
-import { ECHO_COVERS } from './echoCovers';
+import { POSTER_COVERS } from './echoCovers';
 import SectionHeader from './design/SectionHeader';
 
 export interface BrowseCategoryItem {
@@ -17,84 +17,84 @@ export const BROWSE_CATEGORIES: BrowseCategoryItem[] = [
     query: 'New Releases Official 2025',
     gradient: 'from-[#222222] to-[#111111]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.global,
+    imageUrl: POSTER_COVERS.weekndCrimson,
   },
   {
     name: 'Made For You',
     query: 'Global Top Hits Official',
     gradient: 'from-[#1f1f1f] to-[#111111]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.glasswave,
+    imageUrl: POSTER_COVERS.starboyProfile,
   },
   {
     name: 'Indie & Acoustic',
     query: 'Indie Acoustic Hits Official',
     gradient: 'from-[#222222] to-[#121212]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.indie,
+    imageUrl: POSTER_COVERS.alessiVoyeur,
   },
   {
     name: 'Late Night',
     query: 'Chill Acoustic Lo-Fi Official',
     gradient: 'from-[#1e1e1e] to-[#0d0d0d]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.nightmix,
+    imageUrl: POSTER_COVERS.afterDark,
   },
   {
     name: 'Pop Hits',
     query: 'Pop Hits Official',
     gradient: 'from-[#222222] to-[#111111]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.glasswave,
+    imageUrl: POSTER_COVERS.craveFloral,
   },
   {
     name: 'India Top',
     query: 'Bollywood Hindi Top Hits',
     gradient: 'from-[#202020] to-[#111111]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.indie,
+    imageUrl: POSTER_COVERS.indiaVinyl,
   },
   {
     name: 'Hip-Hop',
     query: 'Hip Hop Punjabi Official',
     gradient: 'from-[#222222] to-[#111111]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.global,
+    imageUrl: POSTER_COVERS.tylerCreator,
   },
   {
     name: 'Electronic',
     query: 'Electronic Dance Official',
     gradient: 'from-[#1f1f1f] to-[#101010]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.glasswave,
+    imageUrl: POSTER_COVERS.starboyTracklist,
   },
   {
     name: 'K-Pop',
     query: 'K-Pop Hits Official',
     gradient: 'from-[#222222] to-[#111111]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.global,
+    imageUrl: POSTER_COVERS.kpopPrism,
   },
   {
     name: 'Rock',
     query: 'Rock Classics Official',
     gradient: 'from-[#202020] to-[#111111]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.nightmix,
+    imageUrl: POSTER_COVERS.rockAnalog,
   },
   {
     name: 'R&B & Soul',
     query: 'R&B Soul Hits Official',
     gradient: 'from-[#222222] to-[#111111]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.indie,
+    imageUrl: POSTER_COVERS.beRightBack,
   },
   {
     name: 'Workout',
     query: 'Workout Gym Beats Official',
     gradient: 'from-[#1e1e1e] to-[#0f0f0f]',
     headerGradient: 'from-[#222222] via-[#111111] to-[#080808]',
-    imageUrl: ECHO_COVERS.nightmix,
+    imageUrl: POSTER_COVERS.kanyeMonochrome,
   },
 ];
 
@@ -191,18 +191,25 @@ export default function BrowseCategories({
               onClick={() => onCategoryClick(cat)}
               className={`bg-gradient-to-br ${cat.gradient} rounded-2xl p-4 h-[112px] sm:h-[124px] relative overflow-hidden cursor-pointer border border-[#303030] hover:border-white/30 hover:bg-[#222222] active:scale-[0.98] transition-all text-left group`}
             >
-              <div className="absolute -bottom-2 -right-2 w-[74px] h-[74px] sm:w-[86px] sm:h-[86px] rotate-[14deg] rounded-xl overflow-hidden shadow-2xl border border-white/15 group-hover:rotate-[8deg] transition-transform duration-200 bg-[#111111]">
+              <img
+                src={cat.imageUrl}
+                alt=""
+                aria-hidden="true"
+                referrerPolicy="no-referrer"
+                className="pointer-events-none absolute -right-4 -bottom-4 w-28 h-28 object-cover blur-2xl opacity-30 group-hover:opacity-45 transition-opacity duration-300"
+              />
+              <div className="absolute -bottom-2 -right-2 w-[74px] h-[74px] sm:w-[86px] sm:h-[86px] rotate-[12deg] rounded-xl overflow-hidden shadow-2xl border border-white/15 group-hover:rotate-[6deg] group-hover:scale-105 transition-all duration-200 bg-[#111111]">
                 <img
                   src={cat.imageUrl}
                   alt={cat.name}
                   referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover object-top"
                 />
               </div>
 
               <div className="relative z-10 h-full flex flex-col justify-between">
-                <span className="text-[11px] font-medium text-[#737373]">Category</span>
-                <h3 className="text-white font-extrabold text-[15px] sm:text-base tracking-tight leading-tight max-w-[66%]">
+                <span className="text-[11px] font-medium text-[#A3A3A3]">Category</span>
+                <h3 className="text-white font-extrabold text-[15px] sm:text-base tracking-tight leading-tight max-w-[66%] drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
                   {cat.name}
                 </h3>
               </div>

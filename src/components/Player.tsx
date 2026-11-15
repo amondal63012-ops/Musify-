@@ -25,6 +25,7 @@ import { isNativeAndroid, resolveApiUrl } from '../lib/apiConfig';
 import { resolveTrackFallback } from '../api';
 import { AuraMedia3, canUseNativeMedia3 } from '../lib/nativeAudioBridge';
 import { ECHO_COVERS } from './echoCovers';
+import WavingProgressBar from './WavingProgressBar';
 
 interface PlayerProps {
   currentTrack: Track | null;
@@ -92,7 +93,6 @@ export default function Player({
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const [isPiPOpen, setIsPiPOpen] = useState(false);
   const [resolvedPlaybackUrl, setResolvedPlaybackUrl] = useState<string | null>(null);
-  const [hoverProgressPct, setHoverProgressPct] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -941,11 +941,14 @@ export default function Player({
             </button>
           </div>
 
-          {/* Thin Progress Indicator */}
-          <div className="absolute z-10 bottom-0 left-3 right-3 h-[2px] bg-white/15 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-white rounded-full transition-[width] duration-200 shadow-[0_0_8px_rgba(255,255,255,0.45)]"
-              style={{ width: `${Math.min(100, (progress / (duration || 1)) * 100)}%` }}
+          {/* Thin Waving Playback Progress Indicator */}
+          <div className="absolute z-10 bottom-0.5 left-3.5 right-3.5 pointer-events-none">
+            <WavingProgressBar
+              progress={progress}
+              duration={duration}
+              isPlaying={isPlaying}
+              compact
+              interactive={false}
             />
           </div>
         </div>
@@ -1164,47 +1167,18 @@ export default function Player({
             </button>
           </div>
 
-          <div className="flex items-center gap-3 w-full max-w-md text-[11px] text-white/75 font-medium group tabular-nums">
+          <div className="flex items-center gap-3 w-full max-w-md text-[11px] text-white/75 font-medium tabular-nums">
             <span className="w-10 text-right">{formatTime(progress)}</span>
-            <div
-              className="relative flex-1 flex items-center h-4"
-              onMouseMove={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const pct = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100));
-                setHoverProgressPct(pct);
-              }}
-              onMouseLeave={() => setHoverProgressPct(null)}
-            >
-              {hoverProgressPct !== null && (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#141414]/95 backdrop-blur-md border border-white/15 text-[10px] font-semibold text-white shadow-lg whitespace-nowrap"
-                  style={{ left: `${hoverProgressPct}%` }}
-                >
-                  {formatTime((hoverProgressPct / 100) * (duration || 0))}
-                </div>
-              )}
-              <div className="w-full h-[3px] group-hover:h-1 bg-white/20 rounded-full overflow-hidden transition-all duration-150">
-                <div
-                  className="h-full bg-white rounded-full transition-[width] duration-150"
-                  style={{ width: `${Math.min(100, (progress / (duration || 1)) * 100)}%` }}
-                />
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                value={progress}
-                onChange={handleSeekChange}
-                aria-label="Seek progress"
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              />
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white shadow scale-0 group-hover:scale-100 transition-transform duration-150"
-                style={{ left: `${Math.min(100, (progress / (duration || 1)) * 100)}%` }}
-              />
-            </div>
+            <WavingProgressBar
+              progress={progress}
+              duration={duration}
+              isPlaying={isPlaying}
+              onSeekChange={handleSeekChange}
+              showHoverTooltip
+              formatTime={formatTime}
+              ariaLabel="Seek progress"
+              className="flex-1"
+            />
             <span className="w-10 text-left">{formatTime(duration)}</span>
           </div>
         </div>

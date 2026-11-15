@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Play, Flame } from 'lucide-react';
 import { getCharts, getViralSongs, getArtists } from '../api';
 import { Track, Artist, Playlist, SavedAlbum } from '../types';
-import { ECHO_COVERS } from './echoCovers';
+import { ECHO_COVERS, POSTER_COVERS } from './echoCovers';
 import SectionHeader from './design/SectionHeader';
 import MusicCard from './design/MusicCard';
 import AlbumCard from './design/AlbumCard';
@@ -41,28 +41,28 @@ const EDITORIAL_COLLECTIONS = [
     id: 'ed-top-hits',
     title: 'Aura Essential 50',
     subtitle: 'Handpicked official publisher flagship tracks',
-    coverUrl: ECHO_COVERS.global,
+    coverUrl: POSTER_COVERS.weekndCrimson,
     query: 'Global Top Hits Official',
   },
   {
     id: 'ed-acoustic',
     title: 'After Hours Acoustic',
     subtitle: 'Intimate studio sessions and stripped vocal cuts',
-    coverUrl: ECHO_COVERS.indie,
+    coverUrl: POSTER_COVERS.alessiVoyeur,
     query: 'Indie Acoustic Hits Official',
   },
   {
     id: 'ed-electronic',
     title: 'Nocturnal Pulse',
     subtitle: 'Deep basslines, ambient synths & late-night grooves',
-    coverUrl: ECHO_COVERS.glasswave,
+    coverUrl: POSTER_COVERS.kpopPrism,
     query: 'Electronic Dance Official',
   },
   {
     id: 'ed-throwbacks',
     title: 'Golden Era Classics',
     subtitle: 'Iconic singles & evergreen soundtrack recordings',
-    coverUrl: ECHO_COVERS.nightmix,
+    coverUrl: POSTER_COVERS.rockAnalog,
     query: '90s 2000s Classic Hits',
   },
 ];
