@@ -87,8 +87,18 @@ function mapJioSaavnSong(song: any) {
   };
 }
 
+function foldDiacritics(str: string): string {
+  return (str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[øØ]/g, 'o')
+    .replace(/[łŁ]/g, 'l')
+    .replace(/[æÆ]/g, 'ae')
+    .replace(/[ß]/g, 'ss');
+}
+
 function normalizeMatchText(str: string): string {
-  return cleanText(str || '')
+  return foldDiacritics(cleanText(str || ''))
     .toLowerCase()
     .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
     .replace(/\b(feat\.?|ft\.?|featuring|with)\b.*$/i, ' ')
@@ -101,8 +111,8 @@ function escapeRegExp(str: string): string {
 }
 
 function titleHasArtistCredit(title: string, targetArtist: string): boolean {
-  const tClean = cleanText(title || '').toLowerCase();
-  const target = cleanText(targetArtist || '').toLowerCase();
+  const tClean = foldDiacritics(cleanText(title || '')).toLowerCase();
+  const target = foldDiacritics(cleanText(targetArtist || '')).toLowerCase();
   if (!tClean || !target) return false;
   const esc = escapeRegExp(target);
   // Match structured artist credits in verified label titles like "Alok & Alan Walker - Headlights" or "(feat. Alan Walker)"
@@ -126,7 +136,7 @@ function artistMatchesTarget(
   trackTitle: string = '',
   allowTitleCollab: boolean = false
 ): boolean {
-  const targetClean = cleanText(targetArtist || '').toLowerCase();
+  const targetClean = foldDiacritics(cleanText(targetArtist || '')).toLowerCase();
   const targetCompact = targetClean.replace(/[^a-z0-9]/g, '');
   const targetSpaced = targetClean.replace(/[^a-z0-9]+/g, ' ').trim();
   if (!targetCompact) return false;
@@ -134,7 +144,7 @@ function artistMatchesTarget(
   if (trackArtist) {
     const entities = splitArtistEntities(trackArtist);
     for (const ent of entities) {
-      const entLower = ent.toLowerCase();
+      const entLower = foldDiacritics(ent).toLowerCase();
       const entCompact = entLower.replace(/[^a-z0-9]/g, '');
       const entSpaced = entLower.replace(/[^a-z0-9]+/g, ' ').trim();
       if (entCompact === targetCompact || entSpaced === targetSpaced) {
@@ -152,6 +162,7 @@ const OFFICIAL_MAJOR_PUBLISHERS = [
   't-series', 'tseries', 'sony music', 'universal music', 'warner music', 'atlantic records',
   'republic records', 'interscope', 'columbia records', 'def jam', 'capitol records', 'rca records',
   'island records', 'virgin records', 'polydor', 'parlophone', 'elektra', 'epic records', 'arista',
+  'laface records', 'geffen', 'domino recording', 'xl recordings', 'rhino', 'legacy recordings',
   'zee music', 'yrf', 'yash raj', 'saregama', 'tips', 'speed records', 'white hill', 'desi melodies',
   'mass appeal', 'times music', 'rehaan records', 'gully gang', 'kalamkaar', 'famous studios',
   'spinnin', 'monstercat', 'nocopyrightsounds', 'mer recordings', 'mer musikk', 'world of walker',
@@ -159,40 +170,64 @@ const OFFICIAL_MAJOR_PUBLISHERS = [
   'armada music', 'ultra records', 'dim mak', 'mad decent', 'xo records', 'cactus jack',
   'good music', 'aftermath', 'shady records', 'roc nation', 'top dawg', 'dreamville',
   'quality control', 'young money', 'cash money', 'empire', '300 entertainment', 'fueled by ramen',
-  'big machine', 'hollywood records', 'walt disney', 'geffen', 'mercury records', 'bmg',
+  'big machine', 'hollywood records', 'mercury records', 'bmg', 'blackened recordings',
+  'pink floyd records', 'monkey puzzle', 'artist partner', 'rimas entertainment', 'motown', 'emi',
   'geet mp3', 'jass records', 'humble music', 'lokdhun', 'vyrl', 'believe music',
-  'bighit', 'hybe', 'yg entertainment', 'sm entertainment', 'jyp entertainment'
+  'bighit', 'hybe', 'yg entertainment', 'sm entertainment', 'jyp entertainment', 'ador', 'ume - global',
+  'silent records', 'big beat records', 'dj snake music'
 ];
 
 function isMajorPublisherLabel(labelOrChannel: string): boolean {
-  const low = cleanText(labelOrChannel || '').toLowerCase();
+  const low = foldDiacritics(cleanText(labelOrChannel || '')).toLowerCase();
   if (!low) return false;
   return OFFICIAL_MAJOR_PUBLISHERS.some(pub => low.includes(pub));
 }
 
-// Strictly deletes ALL unofficial mixes, mixtapes, slowed, reverb, lofi, sped up, remixes, covers, karaoke, and impostor uploads
-function isUnofficialOrRemix(title: string, artist: string = '', album: string = '', rawTitle: string = '', label: string = ''): boolean {
+const VERIFIED_OFFICIAL_DJS = new Set([
+  'dj snake', 'dj khaled', 'dj premier', 'dj shadow', 'dj mustard', 'dj drama',
+  'dj tiesto', 'dj fresh', 'dj jazzy jeff', 'dj luian', 'dj maphorisa', 'dj chetas',
+  'dj cassette', 'dj spinall', 'dj kentaro', 'dj krush', 'dj koze', 'dj seinfeld',
+  'djoko', 'dj boring', 'dj rashad'
+]);
+
+// Deletes unofficial mixes, mixtapes, slowed, reverb, lofi covers, sped up, remixes, covers, karaoke, and impostor uploads
+// while preserving genuine official studio releases whose title/artist contains words like "DJ", "Cover Me", etc.
+function isUnofficialOrRemix(
+  title: string,
+  artist: string = '',
+  album: string = '',
+  rawTitle: string = '',
+  label: string = '',
+  query: string = ''
+): boolean {
   if (!title && !rawTitle) return true;
   const tCombined = `${title} ${rawTitle}`.toLowerCase();
   const aLower = (artist || '').toLowerCase();
   const albLower = (album || '').toLowerCase();
   const labLower = (label || '').toLowerCase();
-  const fullText = `${tCombined} ${aLower} ${albLower} ${labLower}`;
+  const qLower = (query || '').toLowerCase();
+  // Check non-label fields separately for ambiguous words like "mixtape" (e.g. Juice WRLD's label "Juice WRLD Mixtape / ISR P&D")
+  const trackText = `${tCombined} ${aLower} ${albLower}`;
+  const fullText = `${trackText} ${labLower}`;
 
   const strictBadSubstrings = [
     'karaoke', '16-bit', '16 bit', '16bit', '8-bit', '8 bit', '8bit', 'emulation',
-    'soundalike', 'tribute band', 'tribute project', 'backing track', 'arcade player',
-    'lullaby', 'sleeptherapy', 'sleep therapy', 'deep sleep', 'sleep music',
+    'soundalike', 'tribute band', 'tribute project', 'backing track', 'backing version', 'arcade player',
+    'lullaby', 'sleeptherapy', 'sleep therapy', 'deep sleep', 'sleep music', 'rockabye baby', 'kidz bop', 'babies go',
     'chiptune', 'zzang karaoke', 'melody karaoke', 'pop covers', 'covers unplugged', 'dreamy lofi',
+    'covers factory', 'soothing piano', 'billboard masters', 'propa charts', 'studio lead',
+    'once jamison', 'born to rock', 'xoxo music', 'strings from paris', 'party tyme', 'done again',
+    'stingray music', 'roma music group', 'roma symphony orchestra', 'midnite string quartet', 'sweet little band',
+    'rgs music', 'running music', 'running trax', 'workout buddy', 'mirror2music', 'sybersound',
+    'lee sang gul', 'aiden yoo', 'seraphic sounds', 'frenmad', 'digi beat publishing', 'unik god', 'tchiz', 'lcdff',
     'night cascade', 'sunset roses', 'sound tower', 'shadow tower', 'pacani', 'zambazi', 'hyper visor',
-    'calming & relaxing', 'relaxing piano', 'city string ensemble',
-    'giacomo bucci', 'go rilla', 'cranked up', 'deep mage', 'hardstyle',
+    'calming & relaxing', 'relaxing piano', 'city string ensemble', 'piano tribute', 'samuel kim',
+    'giacomo bucci', 'go rilla', 'cranked up', 'deep mage', 'hardstyle', 'inspired by',
     'ambient version', 'slowed', 'sped up', 'speed up', 'speedup', 'reverb', 'reverbed',
-    'bass boosted', 'bassboosted', 'nightcore', 'tribute to', 'originally performed by',
-    'techno version', 'blinding lights (techno)', 'piano version', 'dance mix', 'club mix', 'party mix', 'dj mix',
+    'bass boosted', 'bassboosted', 'nightcore', 'tribute to', 'originally performed by', 'in the style of',
+    'made popular by', 'techno version', 'blinding lights (techno)', 'piano version', 'dance mix', 'club mix', 'party mix', 'dj mix',
     'stutter techno', 'extended instrumental', 'sing feel', 'nonnoburro', 'scity', 'key by key',
-    'mellow jones', 'lofi lucy', 'john skyfield', 'lofi', 'lo-fi', 'lo fi',
-    'javapink', 'sapphink', 'open masti', 'jackey mishra', 'moriom nessa',
+    'mellow jones', 'lofi lucy', 'john skyfield', 'javapink', 'sapphink', 'open masti', 'jackey mishra', 'moriom nessa',
     'insane moony', 'jhonny boutros', 'karaokeysph', 'karaoke idols', 'backing business',
     'dahiya the rapper', 'dikkat official', 'clavier', 'marlene t', 'saarthak',
     'hardeep grewal', 'your movie soundtrack', 'michael von bragin', 'maria lorens',
@@ -203,10 +238,10 @@ function isUnofficialOrRemix(title: string, artist: string = '', album: string =
     'industry insiders', 'some study music', 'guitar instrumental', 'acoustic version', 'guitar cafeteria',
     'piano cover', 'acoustic cover', 'instrumental cover', 'instrumental version',
     'workout remix', 'fitness remix', 'study beats', 'chill instrumental',
-    'mashup', 'mash up', 'circuit mash', 'megamix', 'mega mix', 'mixtape', 'jukebox',
+    'mashup', 'mash up', 'circuit mash', 'megamix', 'mega mix', 'jukebox',
     'nonstop', 'non-stop', 'bootleg', 'unplugged', 'tiny desk', 'r3d edit',
     'chipmunk', 'chopped', 'screwed', '8d audio', '9d audio', '3d audio', '16d audio',
-    'ringtone', 'phonk', 'parody', '0fficial', '[download]', '(download)', 'download]',
+    'ringtone', 'parody', '0fficial', '[download]', '(download)', 'download]',
     'taken hostage', 'meditation', 'acapella', 'a capella', 'vocal only', 'medley',
     'rework', 'remint', 're-mint', 'r3mix', '1 hour', '10 hour', 'extended loop', 'full album',
     'reaction', 'tutorial', 'type beat', 'free beat', 'karaoke version',
@@ -214,14 +249,27 @@ function isUnofficialOrRemix(title: string, artist: string = '', album: string =
     '7clouds', 'glazey', 'doggy k', 'studaviga', 'vom deich', 'sona prashant', 'fabi 461',
     'hyperbee', 'turborave', 'chill vibes', 'vibes network', 'spitz aura', 'bad subelo',
     'abr music label', 'allabakash khan', 'fran garro', 'mlicasiano09', 'josiane figueiredo',
-    'don jaye', 'hustinder', 'hairitage',
-    'official preview', '[out now]', 'out now', 'snippet', 'play violinist',
-    'luke muzzic', 'gillan cash', 'lexmorris', 'harddope', 'rachel morgan perry',
+    'don jaye', 'hustinder', 'hairitage', 'dj nedo', 'full bass', 'caitlyn craig',
+    'official preview', '[out now]', 'snippet', 'play violinist',
+    'luke muzzic', 'tommymuzzic', 'gillan cash', 'lexmorris', 'harddope', 'rachel morgan perry',
     'navagio', 'kid on the block', 'fennecxx', 'akrai', 'revelries', 'victoria voss',
-    'unresolved', 'magic records', 'losthill', '17diamonds', 'chill vibes records', 'southfold'
+    'magic records', 'losthill', '17diamonds', 'chill vibes records', 'southfold',
+    'allison pink', 'smilax publishing', 'melodi-fi', 'coopers music', 'talking clive', 'brand new rockers'
   ];
 
   if (strictBadSubstrings.some(p => fullText.includes(p))) {
+    return true;
+  }
+
+  // Only reject mixtape/phonk/lofi when in title/album/artist or not explicitly requested as genre
+  if (/\bmixtape\b/i.test(trackText)) return true;
+  const queryWantsLofi = /\blo-?fi\b/i.test(qLower);
+  if (!queryWantsLofi && /\blo-?fi\b|\blofi\b|\bphonk\b/i.test(fullText)) {
+    return true;
+  }
+
+  // Reject mashup-style multi-song combinations like "After Dark x Sweater Weather" when not a major publisher collab
+  if (/\s+x\s+[^-]+\s+x\s+/i.test(tCombined) || (!isMajorPublisherLabel(label) && /\b(?:after dark|sweater weather|perfect girl)\s+x\s+/i.test(tCombined))) {
     return true;
   }
 
@@ -230,10 +278,11 @@ function isUnofficialOrRemix(title: string, artist: string = '', album: string =
     return true;
   }
 
-  // Word-boundary checks on title + rawTitle so words like "remix", "mix", "cover", "live concert" are strictly removed
+  // Word-boundary checks on title + rawTitle targeting derivative remix/cover/live modifiers cleanly
+  const queryWantsAcoustic = /\bacoustic\b/i.test(qLower);
   const titleRegexes = [
-    /\bmix(?:es|ed)?\b/i,
-    /\bmixtape\b/i,
+    /\b(?:club|dance|party|dj|extended|radio|workout|fitness|festival|dub|vip|bootleg|mega|continuous|non-?stop|house|techno|trance)\s+mix(?:es|ed)?\b/i,
+    /\((?:[^)]*\bmix\b[^)]*)\)|\[(?:[^\]]*\bmix\b[^\]]*)\]/i,
     /\bremix(?:ed|es|ing)?\b/i,
     /\bremake(?:s)?\b/i,
     /\brmx\b/i,
@@ -242,29 +291,41 @@ function isUnofficialOrRemix(title: string, artist: string = '', album: string =
     /(?:vip|club|festival)\s+(?:mix|edit)/i,
     /\bslowed\b/i,
     /\bpreview\b/i,
-    /\bdj\b/i,
-    /\bcover(?:s|ed)?\b/i,
+    /\bdj\s+(?:mix|remix|set|nonstop|mashup|edit|bootleg)\b/i,
+    /\bcover(?:s)?\s+(?:by|of|version|mix|edit|band)\b|\b(?:piano|acoustic|vocal|instrumental|guitar|violin|cello|pop|rock|metal|orchestral)\s+covers?\b|\((?:[^)]*\bcover(?:s)?\b[^)]*)\)|\[(?:[^\]]*\bcover(?:s)?\b[^\]]*)\]/i,
     /\btribute\b/i,
-    /\binstrumental\b/i,
-    /\bacoustic\b/i,
-    /\bpiano\s+(?:version|cover|tribute|instrumental|solo|medley)\b|\(piano\)|\[piano\]/i,
-    /\bflip\b/i,
+    /\binstrumental\s+(?:version|ver\.?|mix|edit|cover|backing|karaoke|track)\b|\((?:[^)]*\binstrumental\b[^)]*)\)|\[(?:[^\]]*\binstrumental\b[^\]]*)\]/i,
+    /\bpiano\s+(?:version|cover|tribute|instrumental|solo|medley|arrangement)\b|\(piano\)|\[piano\]/i,
+    /\bmetal\s+version\b|\bstring\s+quartet\b|\bsymphony\s+orchestra\b|\bperforms\b/i,
+    /\((?:[^)]*\bflip\b[^)]*)\)|\[(?:[^\]]*\bflip\b[^\]]*)\]|\b(?:lofi|lo-fi|trap|jersey|drill)\s+flip\b|\bflip\s+(?:mix|edit|remix)\b/i,
     /\((?:[^)]*\bedit\b[^)]*)\)|\[(?:[^\]]*\bedit\b[^\]]*)\]/i,
     /\b(?:8d|9d|3d|16d|dnb)\b/i,
-    /\bconcert\b/i,
-    /\bsessions?\b/i,
-    /\b(?:live\s+(?:at|from|in|on|performance|session|version)|\(live\)|\[live\])\b/i,
+    /\b(?:live\s+(?:at|from|in|on|performance|session|version|concert)|\(live\)|\[live\])\b/i,
     /\bbgm\b/i,
-    /\bextended\b/i
+    /\((?:[^)]*\bextended\b[^)]*)\)|\[(?:[^\]]*\bextended\b[^\]]*)\]|\bextended\s+(?:mix|version|edit|cut)\b/i
   ];
 
   if (titleRegexes.some(rx => rx.test(tCombined))) {
     return true;
   }
 
-  // Reject DJ/Tribute/Karaoke/Instrumental-soloist style artist channels
-  if (/\b(?:dj|karaoke|lofi|lo-fi|tribute|cover|arcade|sleep|study|meditation|instrumental|violinist|pianist|guitarist|cellist|8-bit|16-bit)\b/i.test(aLower)) {
+  if (!queryWantsAcoustic && (/\((?:[^)]*\bacoustic\b[^)]*)\)|\[(?:[^\]]*\bacoustic\b[^\]]*)\]|\bacoustic\s+(?:version|cover|mix|edit|session)\b/i.test(tCombined))) {
     return true;
+  }
+
+  // Reject DJ/Tribute/Karaoke/Instrumental-soloist style artist channels unless it's a verified major DJ/publisher
+  if (/\b(?:karaoke|tribute|cover|arcade|sleep|study|meditation|instrumental|violinist|pianist|guitarist|cellist|8-bit|16-bit)\b/i.test(aLower)) {
+    return true;
+  }
+  if (!queryWantsLofi && /\b(?:lofi|lo-fi)\b/i.test(aLower)) {
+    return true;
+  }
+  if (/\bdj\b/i.test(aLower)) {
+    const artistEnts = splitArtistEntities(aLower).map(e => foldDiacritics(e).trim());
+    const hasLegitDj = artistEnts.some(e => VERIFIED_OFFICIAL_DJS.has(e)) || isMajorPublisherLabel(label);
+    if (!hasLegitDj && /\b(?:dj\s*(?:mix|remix|nedo|johal)|dance\s+dj|club\s+dj)\b/i.test(aLower)) {
+      return true;
+    }
   }
 
   return false;
@@ -283,9 +344,14 @@ const IMPOSTOR_STUDIOS = [
   'glazey', 'doggy k', 'studaviga', 'vom deich', 'sona prashant', 'michael von bragin',
   'fabi 461', 'hyperbee', 'turborave', 'insane moony', 'jhonny boutros', 'allabakash khan',
   'fran garro', 'javapink', 'egpianist', 'jackey mishra', 'don jaye', 'mlicasiano09',
-  'josiane figueiredo', 'hustinder', 'akla', 'luke muzzic', 'gillan cash', 'lexmorris',
+  'josiane figueiredo', 'hustinder', 'akla', 'luke muzzic', 'tommymuzzic', 'gillan cash', 'lexmorris',
   'harddope', 'rachel morgan perry', 'navagio', 'kid on the block', 'fennecxx', 'akrai',
-  'revelries', 'victoria voss', 'unresolved', 'southfold', 'play violinist'
+  'revelries', 'victoria voss', 'southfold', 'play violinist',
+  'lee sang gul', 'aiden yoo', 'seraphic sounds', 'frenmad', 'unik god', 'tchiz', 'lcdff',
+  'covers factory', 'caitlyn craig', 'once jamison', 'born to rock', 'party tyme', 'done again',
+  'strings from paris', 'sweet little band', 'midnite string quartet', 'roma symphony orchestra',
+  'running music', 'running trax', 'workout buddy', 'rockabye baby', 'kidz bop', 'samuel kim',
+  'allison pink', 'dj nedo', 'katrina hundred', 'alda rikson', 'the tibbs', 'brand new rockers'
 ];
 
 const FAMOUS_GLOBAL_ARTISTS = [
@@ -298,18 +364,21 @@ const FAMOUS_GLOBAL_ARTISTS = [
   'karan aujla', 'diljit dosanjh', 'arijit singh', 'hanumankind', 'shubh', 'ap dhillon',
   'sidhu moose wala', 'badshah', 'yo yo honey singh', 'skrillex', 'deadmau5', 'bad bunny',
   'linkin park', 'bts', 'blackpink', 'lana del rey', 'sza', 'doja cat', 'michael jackson',
-  'queen', 'the beatles', 'nirvana', 'metallica', 'pink floyd', 'tupac', '2pac', 'snoop dogg'
+  'queen', 'the beatles', 'nirvana', 'metallica', 'pink floyd', 'tupac', '2pac', 'snoop dogg',
+  'arctic monkeys', 'the neighbourhood', 'kali uchis', 'usher', 'dj snake', 'p!nk', 'pink',
+  'radiohead', 'jvke', 'newjeans', 'psy', 'yoasobi', 'fujii kaze', 'juice wrld', 'tame impala',
+  'wiz khalifa', 'chappell roan', 'djo', 'the killers', 'vance joy'
 ];
 
 // Reject third-party uploads whose title attributes a famous artist (e.g., "Ariana Grande - positions" by AKLA) when artist credits don't match
 function hasUnauthorizedFamousAttribution(title: string, rawTitle: string, artist: string, label: string = ''): boolean {
-  const combined = `${title} ${rawTitle}`.toLowerCase();
+  const combined = foldDiacritics(`${title} ${rawTitle}`).toLowerCase();
   if (!combined) return false;
   if (isMajorPublisherLabel(label)) return false;
 
   for (const fa of FAMOUS_GLOBAL_ARTISTS) {
     const esc = escapeRegExp(fa);
-    const rx = new RegExp(`(?:^|\\s-\\s*|\\bby\\s+|[,&×]\\s*)${esc}(?:\\s*-|\\s*$|\\s*\\(|\\s*\\[|[,&×])`, 'i');
+    const rx = new RegExp(`(?:^|\\s-\\s*|\\bby\\s+|[,&×]\\s*|\\s)${esc}(?:\\s*-|\\s*$|\\s*\\(|\\s*\\[|[,&×])`, 'i');
     if (rx.test(combined)) {
       if (!artistMatchesTarget(artist, fa, '', false) && !artistMatchesTarget(label, fa, '', false)) {
         return true;
@@ -321,18 +390,18 @@ function hasUnauthorizedFamousAttribution(title: string, rawTitle: string, artis
 
 function isOfficialPublisherTrack(track: any, query: string = '', strictArtistTarget: string = ''): boolean {
   if (!track || !track.title) return false;
-  if (isUnofficialOrRemix(track.title, track.artist, track.album, track.rawTitle || '', track.label || '')) {
+  if (isUnofficialOrRemix(track.title, track.artist, track.album, track.rawTitle || '', track.label || '', query)) {
     return false;
   }
 
-  // Enforce authentic song duration bounds (1 minute to 11 minutes) when duration is reported
+  // Enforce authentic studio song duration bounds (1 minute to 15 minutes) when duration is reported
   const dur = Number(track.duration) || 0;
-  if (dur > 0 && (dur < 60000 || dur > 660000)) {
+  if (dur > 0 && (dur < 60000 || dur > 900000)) {
     return false;
   }
 
-  const aLower = (track.artist || '').toLowerCase();
-  const entities = splitArtistEntities(track.artist || '').map(e => e.toLowerCase());
+  const aLower = foldDiacritics((track.artist || '').toLowerCase());
+  const entities = splitArtistEntities(track.artist || '').map(e => foldDiacritics(e.toLowerCase()));
   if (IMPOSTOR_STUDIOS.some(imp => aLower === imp || entities.includes(imp) || (imp.length >= 5 && aLower.includes(imp)))) {
     return false;
   }
@@ -346,9 +415,10 @@ function isOfficialPublisherTrack(track: any, query: string = '', strictArtistTa
     return false;
   }
 
-  const qLower = query.toLowerCase().trim();
+  const qLower = foldDiacritics(query).toLowerCase().trim();
   if (qLower) {
     for (const fa of FAMOUS_GLOBAL_ARTISTS) {
+      if (fa.length < 4 && fa !== 'sza' && fa !== 'psy' && fa !== 'djo' && fa !== 'sia') continue;
       const qHasFa = new RegExp(`\\b${escapeRegExp(fa)}\\b`, 'i').test(qLower);
       if (qHasFa && !artistMatchesTarget(track.artist || '', fa, track.rawTitle || track.title || '', allowCollab)) {
         return false;
@@ -519,9 +589,20 @@ async function getSoundCloudClientId(): Promise<string> {
   return cachedScClientId || 'qLcgHhXgeEFFaSolTB9I71LBsqncsD93';
 }
 
-function mapSoundCloudTrack(t: any, query: string = '', strictArtistTarget: string = ''): any | null {
-  // STRICTLY require verified official SoundCloud account (NEVER accept unverified uploads even with ISRC)
-  if (!t?.id || !t.title || t.policy === 'SNIP' || t.user?.verified !== true) return null;
+export interface CanonicalTrackMeta {
+  title: string;
+  artist: string;
+  duration?: number;
+}
+
+function mapSoundCloudTrack(
+  t: any,
+  query: string = '',
+  strictArtistTarget: string = '',
+  canonicalRefs: CanonicalTrackMeta[] = []
+): any | null {
+  // NEVER allow snipped/30s previews
+  if (!t?.id || !t.title || t.policy === 'SNIP') return null;
 
   const durationMs = t.full_duration || t.duration || 0;
   const rawTitle = cleanText(t.title);
@@ -530,8 +611,38 @@ function mapSoundCloudTrack(t: any, query: string = '', strictArtistTarget: stri
   const userChannel = cleanText(t.user?.username || '');
   const userFullName = cleanText(t.user?.full_name || '');
   const pubArtist = cleanText(t.publisher_metadata?.artist || '');
+  const isrc = cleanText(t.publisher_metadata?.isrc || '');
+  const hasValidIsrc = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/i.test(isrc);
   const artistName = pubArtist || userChannel || 'Verified Artist';
   const labelName = cleanText(t.publisher_metadata?.publisher || t.label_name || userChannel);
+  const followers = Number(t.user?.followers_count) || 0;
+  const playCount = Number(t.playback_count) || 0;
+
+  const isVerifiedUser = t.user?.verified === true;
+  const isOfficialLabelOrArtist =
+    isVerifiedUser ||
+    isMajorPublisherLabel(labelName) ||
+    isMajorPublisherLabel(userChannel);
+
+  // Check if an unverified artist/ISRC upload matches an authoritative global master (e.g. Mr.Kitty - After Dark with ISRC)
+  const matchesCanonicalMaster = canonicalRefs.some((c) => {
+    const cTitle = normalizeMatchText(c.title);
+    const sTitle = normalizeMatchText(cleanT);
+    const titleOk = Boolean(cTitle && sTitle && cTitle === sTitle);
+    const artistOk =
+      artistMatchesTarget(artistName, c.artist, rawTitle, true) &&
+      (artistMatchesTarget(userChannel, c.artist) || artistMatchesTarget(userFullName, c.artist) || hasValidIsrc || isMajorPublisherLabel(labelName));
+    const durOk = !c.duration || !durationMs || Math.abs(durationMs - c.duration) <= 15000;
+    const channelCredible =
+      isMajorPublisherLabel(labelName) ||
+      (artistMatchesTarget(userChannel, c.artist) && (followers >= 500 || playCount >= 10000)) ||
+      (hasValidIsrc && followers >= 5000 && playCount >= 50000);
+    return titleOk && artistOk && durOk && channelCredible;
+  });
+
+  if (!isVerifiedUser && !isOfficialLabelOrArtist && !matchesCanonicalMaster) {
+    return null;
+  }
 
   const rawAlbum = cleanText(t.publisher_metadata?.album_title || '');
   const albumName = (rawAlbum && !['fart', 'test', 'none', 'na'].includes(rawAlbum.toLowerCase()) && rawAlbum.length > 1)
@@ -539,7 +650,6 @@ function mapSoundCloudTrack(t: any, query: string = '', strictArtistTarget: stri
     : (cleanText(t.label_name || '') || 'Official Release');
 
   // Guard against low-follower verified artist-pro accounts impersonating famous global stars
-  const followers = Number(t.user?.followers_count) || 0;
   for (const fa of FAMOUS_GLOBAL_ARTISTS) {
     const matchesCreditedOrTitle =
       artistMatchesTarget(artistName, fa, rawTitle, true);
@@ -547,7 +657,7 @@ function mapSoundCloudTrack(t: any, query: string = '', strictArtistTarget: stri
       const channelIsRealArtist =
         artistMatchesTarget(userChannel, fa) || artistMatchesTarget(userFullName, fa);
       const isAuthorizedPublisher =
-        isMajorPublisherLabel(userChannel) || isMajorPublisherLabel(labelName) || followers >= 200000;
+        isMajorPublisherLabel(userChannel) || isMajorPublisherLabel(labelName) || followers >= 200000 || matchesCanonicalMaster;
       if (!channelIsRealArtist && !isAuthorizedPublisher) {
         return null;
       }
@@ -608,7 +718,12 @@ async function fetchScJsonWithRetry(buildUrl: (cid: string) => string): Promise<
   return res.json().catch(() => null);
 }
 
-async function searchSoundCloudOfficialTracks(query: string, strictArtistTarget: string = '', pages: number = 2): Promise<any[]> {
+async function searchSoundCloudOfficialTracks(
+  query: string,
+  strictArtistTarget: string = '',
+  pages: number = 2,
+  canonicalRefs: CanonicalTrackMeta[] = []
+): Promise<{ tracks: any[]; rawItems: any[] }> {
   try {
     const offsets = pages >= 2 ? [0, 50] : [0];
     const artistQuery = strictArtistTarget || query;
@@ -648,7 +763,7 @@ async function searchSoundCloudOfficialTracks(query: string, strictArtistTarget:
     const tracks: any[] = [];
     const seen = new Set<string>();
     for (const t of rawItems) {
-      const mapped = mapSoundCloudTrack(t, query, strictArtistTarget);
+      const mapped = mapSoundCloudTrack(t, query, strictArtistTarget, canonicalRefs);
       if (!mapped) continue;
       const key = `${normalizeMatchText(mapped.title)}:::${normalizeMatchText(mapped.artist)}`;
       if (seen.has(key) || seen.has(mapped.id)) continue;
@@ -657,11 +772,16 @@ async function searchSoundCloudOfficialTracks(query: string, strictArtistTarget:
       tracks.push(mapped);
     }
 
-    return tracks;
+    return { tracks, rawItems };
   } catch (err) {
     console.error('SoundCloud search error:', err);
-    return [];
+    return { tracks: [], rawItems: [] };
   }
+}
+
+async function searchSoundCloudLegacyArray(query: string, strictArtistTarget: string = '', pages: number = 1, canonicalRefs: CanonicalTrackMeta[] = []): Promise<any[]> {
+  const res = await searchSoundCloudOfficialTracks(query, strictArtistTarget, pages, canonicalRefs);
+  return res.tracks;
 }
 
 async function fetchSoundCloudTrendingTracks(genre: string = 'all-music', limit: number = 50): Promise<any[]> {
@@ -1005,22 +1125,17 @@ function mapDeezerRawTrack(t: any, query: string = '', strictArtistTarget: strin
   };
 }
 
-// Deezer metadata lookup used solely for global artist discovery, anti-impostor validation, and chart title resolution
+// Deezer metadata lookup used for global artist/song discovery, canonical ownership, and ranking
 async function searchDeezerMetadataTracks(query: string, strictArtistTarget: string = ''): Promise<any[]> {
   try {
-    const [p1, p2] = await Promise.all([
-      fetch(`https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=50&index=0`, { signal: AbortSignal.timeout(4500) })
-        .then(r => r.ok ? r.json() : { data: [] })
-        .catch(() => ({ data: [] })),
-      fetch(`https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=50&index=50`, { signal: AbortSignal.timeout(4500) })
-        .then(r => r.ok ? r.json() : { data: [] })
-        .catch(() => ({ data: [] }))
-    ]);
+    const p1 = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=50&index=0`, { signal: AbortSignal.timeout(4000) })
+      .then(r => r.ok ? r.json() : { data: [] })
+      .catch(() => ({ data: [] }));
 
     const tracks: any[] = [];
     const seen = new Set<string>();
 
-    for (const t of [...(p1.data || []), ...(p2.data || [])]) {
+    for (const t of (p1.data || [])) {
       const mapped = mapDeezerRawTrack(t, query, strictArtistTarget);
       if (!mapped) continue;
       const key = `${mapped.title.toLowerCase()}:::${mapped.artist.toLowerCase()}`;
@@ -1032,6 +1147,54 @@ async function searchDeezerMetadataTracks(query: string, strictArtistTarget: str
     return tracks;
   } catch (err) {
     console.error('Deezer metadata search error:', err);
+    return [];
+  }
+}
+
+// iTunes worldwide canonical catalog lookup (fast, key-less global music encyclopedia)
+async function searchItunesMetadataTracks(query: string, strictArtistTarget: string = ''): Promise<any[]> {
+  try {
+    const res = await fetch(
+      `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=15`,
+      { signal: AbortSignal.timeout(3500) }
+    );
+    if (!res.ok) return [];
+    const json = await res.json().catch(() => ({ results: [] }));
+    const tracks: any[] = [];
+    const seen = new Set<string>();
+
+    for (let i = 0; i < (json.results || []).length; i++) {
+      const t = json.results[i];
+      if (!t?.trackName || !t?.artistName) continue;
+      const rawTitle = cleanText(t.trackName);
+      const cleanT = cleanSongTitle(rawTitle, t.artistName) || rawTitle;
+      const artistName = cleanText(t.artistName);
+      const albumName = cleanText(t.collectionName || 'Official Release');
+      const durationMs = Number(t.trackTimeMillis) || 0;
+      if (!isOfficialPublisherTrack({ title: cleanT, rawTitle, artist: artistName, album: albumName, duration: durationMs }, query, strictArtistTarget)) {
+        continue;
+      }
+      const key = `${normalizeMatchText(cleanT)}:::${normalizeMatchText(artistName)}`;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const coverRaw = t.artworkUrl100 || '';
+      const coverUrl = coverRaw ? coverRaw.replace(/\d+x\d+bb/, '600x600bb') : '';
+      tracks.push({
+        id: 'it_' + (t.trackId || i),
+        title: cleanT,
+        rawTitle,
+        artist: artistName,
+        album: albumName,
+        rank: Math.max(250000, 900000 - i * 45000),
+        coverUrl,
+        streamUrl: '',
+        previewUrl: '',
+        duration: durationMs,
+        source: 'itunes'
+      });
+    }
+    return tracks;
+  } catch {
     return [];
   }
 }
@@ -1558,12 +1721,25 @@ async function fetchItunesTopTracksMetadata(limit: number = 20): Promise<any[]> 
   }
 }
 
-// Helper: Resolve any track to a direct HTML5/HLS background-playable stream across JioSaavn / SoundCloud / Gaana / Audius
-async function resolveDirectStreamTrack(title: string, artist: string = '', coverOverride: string = '', albumOverride: string = ''): Promise<any | null> {
-  const cleanTitle = title.replace(/\(.*\)|\[.*\]/g, '').trim();
+// Helper: Resolve any track to a direct HTML5/HLS background-playable stream across JioSaavn / SoundCloud / Gaana / Audius / Jamendo
+async function resolveDirectStreamTrack(
+  title: string,
+  artist: string = '',
+  coverOverride: string = '',
+  albumOverride: string = '',
+  targetDurationMs: number = 0
+): Promise<any | null> {
+  const cleanTitle = cleanSongTitle(title, artist) || title.replace(/\(.*\)|\[.*\]/g, '').trim();
+  const asciiTitle = foldDiacritics(cleanTitle).replace(/[!?'".]/g, ' ').replace(/\s+/g, ' ').trim();
   const targetTitleNorm = normalizeMatchText(cleanTitle);
-  const query = `${cleanTitle} ${artist}`.trim();
-  if (!cleanTitle) return null;
+  const primaryArtist = splitArtistEntities(artist)[0] || artist;
+  const asciiArtist = foldDiacritics(primaryArtist).replace(/[!?'".]/g, ' ').replace(/\s+/g, ' ').trim();
+  const query = `${asciiTitle || cleanTitle} ${asciiArtist || primaryArtist}`.trim();
+  if (!cleanTitle || !targetTitleNorm) return null;
+
+  const canonicalRef: CanonicalTrackMeta[] = primaryArtist
+    ? [{ title: cleanTitle, artist: primaryArtist, duration: targetDurationMs }]
+    : [];
 
   const matchesTrack = (t: any) => {
     if (!t?.streamUrl) return false;
@@ -1572,27 +1748,34 @@ async function resolveDirectStreamTrack(title: string, artist: string = '', cove
       candNorm && targetTitleNorm && (candNorm === targetTitleNorm || candNorm.includes(targetTitleNorm) || targetTitleNorm.includes(candNorm))
     );
     if (!titleMatch) return false;
-    if (artist && !artistMatchesTarget(t.artist || '', artist, t.rawTitle || t.title || '', Boolean(t.allowTitleCollab))) {
+    if (primaryArtist && !artistMatchesTarget(t.artist || '', primaryArtist, t.rawTitle || t.title || '', Boolean(t.allowTitleCollab))) {
       return false;
     }
     return true;
   };
 
   try {
-    const [saavnRes, saavnAcTracks, scTracks, gaanaTracks, audiusTracks, jamendoTracks] = await Promise.all([
-      fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=8&p=1`, 4000)
+    const titleOnlyDistinct = asciiTitle && asciiTitle.toLowerCase() !== query.toLowerCase();
+    const [saavnRes, saavnTitleRes, saavnAcTracks, scRes, gaanaTracks, audiusTracks, jamendoTracks] = await Promise.all([
+      fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=12&p=1`, 4000)
         .then(d => d || {}),
+      titleOnlyDistinct
+        ? fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(asciiTitle)}&n=12&p=1`, 4000).then(d => d || {})
+        : Promise.resolve({}),
       fetchSaavnAutocompleteTracks(query).catch(() => []),
-      searchSoundCloudOfficialTracks(query, artist, 1).catch(() => []),
-      searchGaanaOfficialTracks(query, artist).catch(() => []),
-      searchAudiusOfficialTracks(query, artist).catch(() => []),
-      searchJamendoOfficialTracks(query, artist).catch(() => [])
+      searchSoundCloudOfficialTracks(query, primaryArtist, 1, canonicalRef).catch(() => ({ tracks: [], rawItems: [] })),
+      process.env.GAANA_PROXY_URL ? searchGaanaOfficialTracks(query, primaryArtist).catch(() => []) : Promise.resolve([]),
+      searchAudiusOfficialTracks(query, primaryArtist).catch(() => []),
+      searchJamendoOfficialTracks(query, primaryArtist).catch(() => [])
     ]);
 
     const saavnCandidates = [
       ...(saavnAcTracks || []),
       ...((saavnRes.results || []).map(mapJioSaavnSong)),
-    ].filter((t: any) => t.streamUrl && isOfficialPublisherTrack(t, query, artist));
+      ...((saavnTitleRes.results || []).map(mapJioSaavnSong)),
+    ].filter((t: any) => t.streamUrl && isOfficialPublisherTrack(t, query, primaryArtist));
+
+    const scTracks = scRes.tracks || [];
 
     const match =
       saavnCandidates.find(matchesTrack) ||
@@ -1606,7 +1789,7 @@ async function resolveDirectStreamTrack(title: string, artist: string = '', cove
     return {
       ...match,
       title: cleanTitle,
-      artist: artist || match.artist,
+      artist: primaryArtist ? (artistMatchesTarget(match.artist || '', primaryArtist) ? match.artist : artist) : match.artist,
       coverUrl: coverOverride || match.coverUrl,
       album: albumOverride || match.album
     };
@@ -2262,8 +2445,8 @@ app.get(['/api/artist/:id', '/artist/:id'], async (req, res) => {
             .then(d => d || {})
         )
       ),
-      searchSoundCloudOfficialTracks(targetArtist, targetArtist, 2).catch(() => []),
-      searchGaanaOfficialTracks(targetArtist, targetArtist).catch(() => []),
+      searchSoundCloudLegacyArray(targetArtist, targetArtist, 2).catch(() => []),
+      process.env.GAANA_PROXY_URL ? searchGaanaOfficialTracks(targetArtist, targetArtist).catch(() => []) : Promise.resolve([]),
       searchAudiusOfficialTracks(targetArtist, targetArtist).catch(() => []),
       fetchDeezerArtistTopTitles(targetArtist, knownDzId).catch(() => []),
       fetchLastFmArtistTopTracks(targetArtist).catch(() => [])
@@ -2394,10 +2577,12 @@ app.get(['/api/search', '/search'], async (req, res) => {
 
     const seenKeys = new Set<string>();
     const allTracks: any[] = [];
-    const queryLower = query.toLowerCase();
+    const queryLower = foldDiacritics(query).toLowerCase();
     const queryNorm = normalizeMatchText(query);
+    const queryTokens = queryNorm.split(' ').filter(tok => tok.length >= 2);
+    const canonicalSongHits: Array<{ title: string; artist: string; album: string; coverUrl: string; duration: number; weight: number }> = [];
 
-    // Handle Global Top Hits / English Top Hits chart browse queries directly with curated live playlists + global charts
+    // Handle Global Top Hits / English Top Hits chart browse queries directly with curated live playlists
     if (/^(?:global top hits(?:\s+official|\s+english)?|top global|global hits)$/i.test(queryLower.trim())) {
       const [englishPl, trendPl] = await Promise.all([
         fetchSaavnJson('https://www.jiosaavn.com/api.php?__call=playlist.getDetails&listid=1081991857&api_version=4&_format=json&_marker=0&ctx=web6dot0', 4500),
@@ -2420,52 +2605,44 @@ app.get(['/api/search', '/search'], async (req, res) => {
       }
     }
 
-    try {
-      const matchedSaavnArtist = FEATURED_ARTISTS.find(a => a.name.toLowerCase() === queryLower);
-      let saavnArtistId = matchedSaavnArtist && /^\d+$/.test(matchedSaavnArtist.id) ? matchedSaavnArtist.id : '';
-      let saavnArtistName = matchedSaavnArtist?.name || query;
-      if (!saavnArtistId) {
-        const artSearch = await fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getArtistResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=3&p=1`, 3500);
-        const exactArt = (artSearch?.results || []).find((a: any) => artistMatchesTarget(a?.name || '', query));
-        if (exactArt?.id) {
-          saavnArtistId = String(exactArt.id);
-          saavnArtistName = cleanText(exactArt.name || query);
-        }
-      }
-      if (saavnArtistId) {
-        const pageData = await fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=artist.getArtistPageDetails&artistId=${saavnArtistId}&api_version=4&_format=json&_marker=0&ctx=web6dot0&n_song=50&n_album=10`, 4200);
-        if (pageData) {
-          for (const t of (pageData.topSongs || []).map(mapJioSaavnSong)) {
-            if (t.streamUrl && isOfficialPublisherTrack(t, query, saavnArtistName)) {
-              const cleanT = cleanSongTitle(t.title, saavnArtistName);
-              const key = normalizeMatchText(cleanT);
-              if (key && !seenKeys.has(key)) {
-                seenKeys.add(key);
-                allTracks.push({ ...t, title: cleanT });
-              }
-            }
-          }
-        }
-      }
-    } catch {}
+    const queryBannedWords = /^(?:slowed|reverb|slowed reverb|karaoke|nightcore|remix|mixtape|8d audio|bootleg)$/i;
+    const isPureBannedQuery = queryBannedWords.test(queryLower.trim());
+    if (isPureBannedQuery) {
+      return res.json([]);
+    }
 
     try {
-      const pages = [1, 2, 3, 4, 5, 6];
-      const [pageResults, saavnAcTracks, albumSearchRes, playlistSearchRes, scTracks, gaanaTracks, deezerMetaTracks, mxmMetaTracks, lfmMetaTracks, audiusTracks, jamendoTracks, archiveTracks] = await Promise.all([
+      const asciiQuery = foldDiacritics(query).replace(/[!?'".]/g, ' ').replace(/\s+/g, ' ').trim();
+      const pages = [1, 2, 3];
+
+      // Stage 1: Fetch JioSaavn + Global Encyclopedias (Deezer + iTunes) + SoundCloud + Audius + Archive in parallel
+      const [
+        pageResults,
+        saavnAcTracks,
+        albumSearchRes,
+        scRawResult,
+        gaanaTracks,
+        deezerMetaTracks,
+        itunesMetaTracks,
+        mxmMetaTracks,
+        lfmMetaTracks,
+        audiusTracks,
+        jamendoTracks,
+        archiveTracks
+      ] = await Promise.all([
         Promise.all(
           pages.map(p =>
-            fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=50&p=${p}`, 4500)
+            fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(asciiQuery || query)}&n=40&p=${p}`, 4500)
               .then(d => d || {})
           )
         ),
-        fetchSaavnAutocompleteTracks(query).catch(() => []),
-        fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getAlbumResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=4&p=1`, 4000)
+        fetchSaavnAutocompleteTracks(asciiQuery || query).catch(() => []),
+        fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getAlbumResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(asciiQuery || query)}&n=2&p=1`, 3500)
           .then(d => d || {}),
-        fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getPlaylistResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=3&p=1`, 4000)
-          .then(d => d || {}),
-        searchSoundCloudOfficialTracks(query, '', 2).catch(() => []),
-        searchGaanaOfficialTracks(query).catch(() => []),
+        searchSoundCloudOfficialTracks(asciiQuery || query, '', 1).catch(() => ({ tracks: [], rawItems: [] })),
+        process.env.GAANA_PROXY_URL ? searchGaanaOfficialTracks(query).catch(() => []) : Promise.resolve([]),
         searchDeezerMetadataTracks(query).catch(() => []),
+        searchItunesMetadataTracks(query).catch(() => []),
         searchMusixmatchOfficialTracks(query).catch(() => []),
         searchLastFmOfficialTracks(query).catch(() => []),
         searchAudiusOfficialTracks(query).catch(() => []),
@@ -2473,18 +2650,63 @@ app.get(['/api/search', '/search'], async (req, res) => {
         searchArchiveOfficialTracks(query).catch(() => [])
       ]);
 
-      // Dynamic anti-impostor detection using verified global discographies (Deezer + Musixmatch + Last.fm)
-      const verifiedArtistMatchCount = [...(deezerMetaTracks || []), ...(mxmMetaTracks || []), ...(lfmMetaTracks || [])]
+      // Build ordered canonical global hits from iTunes + Deezer (merged and deduplicated)
+      const combinedCanonicalRaw = [...(itunesMetaTracks || []), ...(deezerMetaTracks || [])];
+      const canonicalSeen = new Set<string>();
+      for (const ct of combinedCanonicalRaw) {
+        const tn = normalizeMatchText(ct.title || '');
+        const an = normalizeMatchText(ct.artist || '');
+        if (!tn || !an) continue;
+        // Skip concatenated spam entries whose title equals "<song> <artist>" while another canonical entry has <song> & <artist> separately
+        const cKey = `${tn}:::${an}`;
+        if (canonicalSeen.has(cKey)) continue;
+        canonicalSeen.add(cKey);
+        canonicalSongHits.push({
+          title: ct.title,
+          artist: ct.artist,
+          album: ct.album || 'Official Release',
+          coverUrl: ct.coverUrl || '',
+          duration: Number(ct.duration) || 0,
+          weight: Number(ct.rank) || 350000
+        });
+      }
+      canonicalSongHits.sort((a, b) => b.weight - a.weight);
+
+      const canonicalRefs: CanonicalTrackMeta[] = canonicalSongHits.slice(0, 8).map(c => ({
+        title: c.title,
+        artist: c.artist,
+        duration: c.duration
+      }));
+
+      // Re-map SoundCloud raw items WITH canonicalRefs so official non-blue-check artists (like Mr.Kitty ISRC) unlock cleanly!
+      const scTracks: any[] = [];
+      const scSeen = new Set<string>();
+      for (const rawSc of (scRawResult?.rawItems || [])) {
+        const mapped = mapSoundCloudTrack(rawSc, query, '', canonicalRefs);
+        if (!mapped) continue;
+        const key = `${normalizeMatchText(mapped.title)}:::${normalizeMatchText(mapped.artist)}`;
+        if (scSeen.has(key) || scSeen.has(mapped.id)) continue;
+        scSeen.add(key);
+        scSeen.add(mapped.id);
+        scTracks.push(mapped);
+      }
+
+      // Determine whether this is genuinely an artist-only query (not a song title colliding with an obscure artist like "Starboy" or "Sweater Weather")
+      const isFeaturedArtistQuery = FEATURED_ARTISTS.some(f => foldDiacritics(f.name).toLowerCase() === queryLower);
+      const verifiedArtistMatchCount = [...(deezerMetaTracks || []), ...(itunesMetaTracks || []), ...(mxmMetaTracks || []), ...(lfmMetaTracks || [])]
         .filter((t: any) => artistMatchesTarget(t.artist, query))
         .length;
-      const isArtistQuery =
-        FEATURED_ARTISTS.some(f => f.name.toLowerCase() === queryLower) ||
-        verifiedArtistMatchCount >= 3;
+      const hasDominantSongTitleMatch = canonicalSongHits.some(c =>
+        normalizeMatchText(c.title) === queryNorm &&
+        !artistMatchesTarget(c.artist, query) &&
+        c.weight >= 450000
+      );
+      const isArtistQuery = isFeaturedArtistQuery || (verifiedArtistMatchCount >= 3 && !hasDominantSongTitleMatch);
 
-      // Build Rule B global song-title ownership map from top-ranked Deezer official releases
+      // Build canonical owner map per song title, EXCLUDING spammer titles that stuff "<song> <artist>" into title
       const verifiedOwnersByTitle = new Map<string, string[]>();
       const dzByTitle = new Map<string, any[]>();
-      for (const dt of (deezerMetaTracks || [])) {
+      for (const dt of combinedCanonicalRaw) {
         const tn = normalizeMatchText(dt.title || '');
         if (!tn) continue;
         if (!dzByTitle.has(tn)) dzByTitle.set(tn, []);
@@ -2494,7 +2716,7 @@ app.get(['/api/search', '/search'], async (req, res) => {
         items.sort((a, b) => (b.rank || 0) - (a.rank || 0));
         const maxRank = items[0]?.rank || 0;
         const threshold = maxRank >= 300000
-          ? Math.max(maxRank * 0.85, maxRank - 120000)
+          ? Math.max(maxRank * 0.80, maxRank - 150000)
           : (maxRank >= 50000 ? maxRank * 0.5 : 0);
         const owners = Array.from(new Set(
           items
@@ -2507,26 +2729,30 @@ app.get(['/api/search', '/search'], async (req, res) => {
         }
       }
 
-      const queryBannedWords = /^(?:slowed|reverb|slowed reverb|lofi|lo-fi|karaoke|nightcore|remix|mixtape|8d audio|bootleg)$/i;
-      const isPureBannedQuery = queryBannedWords.test(queryLower.trim());
+      // Helper: Does track (title + artist) satisfy a combined "<song> <artist>" query?
+      const matchesSplitQuery = (t: any): boolean => {
+        if (queryTokens.length === 0) return true;
+        const tTitleN = normalizeMatchText(t.title || '');
+        const tArtN = normalizeMatchText(t.artist || '');
+        const tCombinedN = `${tTitleN} ${tArtN}`.trim();
+        return queryTokens.every(tok => tCombinedN.includes(tok));
+      };
 
       const isImpostorForQuery = (t: any) => {
-        if (isPureBannedQuery) return true;
-
         const artMatchQuery = artistMatchesTarget(t.artist, query, t.rawTitle || t.title || '', Boolean(t.allowTitleCollab));
         const tTitleNorm = normalizeMatchText(t.title || '');
         const tTitleBase = tTitleNorm
           .replace(/\s+(?:funk|phonk|brazil|drill|trap|sped|slowed|hardstyle|techno|nightcore|version|edition)$/i, '')
           .trim();
 
-        // Rule A: When the query targets an artist, strictly require matching that artist (no tributes or random fallback tracks)
+        // Rule A: When query genuinely targets an artist, strictly require matching that artist
         if (isArtistQuery && queryNorm) {
           if (!artMatchQuery) {
             return true;
           }
         }
 
-        // Rule B: Song-title ownership guard -> reject DIY clones/covers/funk edits of globally owned official songs
+        // Rule B: Canonical song-title ownership guard (rejects karaoke/cover clones of globally owned songs, including 2-3 char titles like "505" / "APT")
         const ownerKey = verifiedOwnersByTitle.has(tTitleNorm)
           ? tTitleNorm
           : (tTitleBase && verifiedOwnersByTitle.has(tTitleBase) ? tTitleBase : '');
@@ -2534,7 +2760,7 @@ app.get(['/api/search', '/search'], async (req, res) => {
         if (ownerKey && queryNorm) {
           const matchesQueryTitle =
             ownerKey === queryNorm ||
-            (ownerKey.length >= 4 && queryNorm.includes(ownerKey)) ||
+            (ownerKey.length >= 2 && new RegExp(`\\b${escapeRegExp(ownerKey)}\\b`).test(queryNorm)) ||
             (queryNorm.length >= 4 && ownerKey.includes(queryNorm));
 
           if (matchesQueryTitle) {
@@ -2543,30 +2769,67 @@ app.get(['/api/search', '/search'], async (req, res) => {
               artistMatchesTarget(t.artist || '', owner, t.rawTitle || t.title || '', Boolean(t.allowTitleCollab))
             );
             const hasMajorLabel = isMajorPublisherLabel(t.label || '');
-            if (!matchesAnyOwner && !hasMajorLabel) {
+            // Only drop non-owner if owner is a high-authority track and track isn't from a major label or matching a different canonical hit
+            const matchesAnotherCanonical = canonicalSongHits.some(c =>
+              normalizeMatchText(c.title) === tTitleNorm && artistMatchesTarget(t.artist || '', c.artist)
+            );
+            if (!matchesAnyOwner && !hasMajorLabel && !matchesAnotherCanonical) {
               return true;
             }
           }
         }
 
-        // Rule C: If user searched an exact famous song in Deezer (e.g. "Die With A Smile"), drop unrelated partial-word filler tracks
-        if (!isArtistQuery && queryNorm && verifiedOwnersByTitle.has(queryNorm)) {
-          const queryOwners = verifiedOwnersByTitle.get(queryNorm)!;
-          const isExactSongTitle = tTitleNorm === queryNorm || tTitleBase === queryNorm;
-          const matchesQueryOwner = queryOwners.some(owner =>
-            artistMatchesTarget(t.artist || '', owner, t.rawTitle || t.title || '', Boolean(t.allowTitleCollab))
-          );
-          const hasMajorLabel = isMajorPublisherLabel(t.label || '');
-          if (!isExactSongTitle && !matchesQueryOwner) {
-            // Allow if title clearly contains the searched song title AND comes from an official major label or verified owner
-            if (!(tTitleNorm.includes(queryNorm) && hasMajorLabel)) {
-              return true;
-            }
+        // Reject spam tracks whose title literally stuffs "<SongTitle> <Artist>" when a real canonical hit separates them cleanly
+        if (canonicalSongHits.length > 0 && queryTokens.length >= 2) {
+          const topCanon = canonicalSongHits[0];
+          const cTitleN = normalizeMatchText(topCanon.title);
+          const cArtN = normalizeMatchText(topCanon.artist);
+          if (
+            cTitleN && cArtN &&
+            tTitleNorm.includes(cTitleN) &&
+            tTitleNorm.includes(cArtN) &&
+            !artistMatchesTarget(t.artist || '', topCanon.artist) &&
+            !isMajorPublisherLabel(t.label || '')
+          ) {
+            return true;
           }
         }
 
         return false;
       };
+
+      // Only fetch featured artist's JioSaavn top songs when query truly matches a verified/popular artist
+      if (isFeaturedArtistQuery || isArtistQuery) {
+        try {
+          const matchedSaavnArtist = FEATURED_ARTISTS.find(a => foldDiacritics(a.name).toLowerCase() === queryLower);
+          let saavnArtistId = matchedSaavnArtist && /^\d+$/.test(matchedSaavnArtist.id) ? matchedSaavnArtist.id : '';
+          let saavnArtistName = matchedSaavnArtist?.name || query;
+          if (!saavnArtistId) {
+            const artSearch = await fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=search.getArtistResults&api_version=4&_format=json&_marker=0&ctx=web6dot0&q=${encodeURIComponent(query)}&n=3&p=1`, 3000);
+            const exactArt = (artSearch?.results || []).find((a: any) => artistMatchesTarget(a?.name || '', query));
+            if (exactArt?.id) {
+              saavnArtistId = String(exactArt.id);
+              saavnArtistName = cleanText(exactArt.name || query);
+            }
+          }
+          if (saavnArtistId) {
+            const pageData = await fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=artist.getArtistPageDetails&artistId=${saavnArtistId}&api_version=4&_format=json&_marker=0&ctx=web6dot0&n_song=40&n_album=5`, 3500);
+            if (pageData) {
+              for (const t of (pageData.topSongs || []).map(mapJioSaavnSong)) {
+                if (t.streamUrl && isOfficialPublisherTrack(t, query, saavnArtistName)) {
+                  const cleanT = cleanSongTitle(t.title, saavnArtistName) || t.title;
+                  const key = `${normalizeMatchText(cleanT)}:::${normalizeMatchText(t.artist)}`;
+                  if (key && !seenKeys.has(key) && !seenKeys.has(t.id)) {
+                    seenKeys.add(key);
+                    seenKeys.add(t.id);
+                    allTracks.push({ ...t, title: cleanT });
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+      }
 
       const combinedSaavnSongs = [
         ...(saavnAcTracks || []),
@@ -2574,7 +2837,7 @@ app.get(['/api/search', '/search'], async (req, res) => {
       ].filter((t: any) => Boolean(t.streamUrl) && isOfficialPublisherTrack(t, query) && !isImpostorForQuery(t));
 
       for (const t of combinedSaavnSongs) {
-        const cleanT = cleanSongTitle(t.title, t.artist);
+        const cleanT = cleanSongTitle(t.title, t.artist) || t.title;
         const key = `${normalizeMatchText(cleanT)}:::${normalizeMatchText(t.artist)}`;
         const trackId = t.id;
         if (!seenKeys.has(key) && !seenKeys.has(trackId)) {
@@ -2584,11 +2847,18 @@ app.get(['/api/search', '/search'], async (req, res) => {
         }
       }
 
-      const albumResults = (albumSearchRes.results || []).slice(0, 4);
-      if (albumResults.length > 0) {
+      // Only expand matching albums if album title/artist relates to query, and NEVER pollute with unrelated tracks
+      const albumResults = (albumSearchRes.results || [])
+        .filter((alb: any) => {
+          const aText = normalizeMatchText(`${alb.title || ''} ${alb.more_info?.music || ''}`);
+          return queryTokens.some(tok => aText.includes(tok));
+        })
+        .slice(0, 2);
+
+      if (albumResults.length > 0 && allTracks.length < 15) {
         const albumDetailBatches = await Promise.all(
           albumResults.map((alb: any) =>
-            fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=content.getAlbumDetails&albumid=${alb.id}&api_version=4&_format=json&_marker=0&ctx=web6dot0`, 4000)
+            fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=content.getAlbumDetails&albumid=${alb.id}&api_version=4&_format=json&_marker=0&ctx=web6dot0`, 3500)
               .then(d => d || {})
           )
         );
@@ -2596,10 +2866,10 @@ app.get(['/api/search', '/search'], async (req, res) => {
         for (const albData of albumDetailBatches) {
           const albTracks = (albData.list || albData.songs || [])
             .map(mapJioSaavnSong)
-            .filter((t: any) => Boolean(t.streamUrl) && isOfficialPublisherTrack(t, query) && !isImpostorForQuery(t));
+            .filter((t: any) => Boolean(t.streamUrl) && isOfficialPublisherTrack(t, query) && !isImpostorForQuery(t) && matchesSplitQuery(t));
 
           for (const t of albTracks) {
-            const cleanT = cleanSongTitle(t.title, t.artist);
+            const cleanT = cleanSongTitle(t.title, t.artist) || t.title;
             const key = `${normalizeMatchText(cleanT)}:::${normalizeMatchText(t.artist)}`;
             const trackId = t.id;
             if (!seenKeys.has(key) && !seenKeys.has(trackId)) {
@@ -2611,35 +2881,7 @@ app.get(['/api/search', '/search'], async (req, res) => {
         }
       }
 
-      const playlistResults = (playlistSearchRes.results || []).slice(0, 3);
-      if (playlistResults.length > 0) {
-        const playlistDetailBatches = await Promise.all(
-          playlistResults.map((pl: any) => {
-            const listId = pl.id || pl.listid;
-            return fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=playlist.getDetails&listid=${listId}&api_version=4&_format=json&_marker=0&ctx=web6dot0`, 4000)
-              .then(d => d || {});
-          })
-        );
-
-        for (const plData of playlistDetailBatches) {
-          const plTracks = (plData.list || [])
-            .map(mapJioSaavnSong)
-            .filter((t: any) => Boolean(t.streamUrl) && isOfficialPublisherTrack(t, query) && !isImpostorForQuery(t));
-
-          for (const t of plTracks) {
-            const cleanT = cleanSongTitle(t.title, t.artist);
-            const key = `${normalizeMatchText(cleanT)}:::${normalizeMatchText(t.artist)}`;
-            const trackId = t.id;
-            if (!seenKeys.has(key) && !seenKeys.has(trackId)) {
-              seenKeys.add(key);
-              seenKeys.add(trackId);
-              allTracks.push({ ...t, title: cleanT });
-            }
-          }
-        }
-      }
-
-      // Merge direct streaming Gaana, SoundCloud, Audius, Jamendo, and Internet Archive tracks (100% streamUrl guaranteed)
+      // Merge direct streaming Gaana, SoundCloud, Audius, Jamendo, and Internet Archive tracks
       for (const t of [...(gaanaTracks || []), ...(scTracks || []), ...(audiusTracks || []), ...(jamendoTracks || []), ...(archiveTracks || [])]) {
         if (!t?.streamUrl || isImpostorForQuery(t)) continue;
         const key = `${normalizeMatchText(t.title)}:::${normalizeMatchText(t.artist)}`;
@@ -2650,17 +2892,29 @@ app.get(['/api/search', '/search'], async (req, res) => {
         }
       }
 
-      // Resolve any top Musixmatch / Last.fm hits not yet present into playable direct-stream tracks
-      const catalogCandidates = [...(mxmMetaTracks || []), ...(lfmMetaTracks || [])]
-        .filter((t: any) => {
-          const key = `${normalizeMatchText(t.title)}:::${normalizeMatchText(t.artist)}`;
-          return !seenKeys.has(key) && !isImpostorForQuery(t);
-        })
-        .slice(0, 6);
+      // Stage 2: Canonical Rescue Pass -> ensure top official iTunes/Deezer/Musixmatch/Last.fm hits not yet matched in Stage 1 get resolved!
+      const isHitAlreadyPresent = (candTitle: string, candArtist: string) => {
+        const cTitleNorm = normalizeMatchText(candTitle);
+        return allTracks.some((existing: any) => {
+          const eTitleNorm = normalizeMatchText(existing.title || '');
+          const tMatch = Boolean(eTitleNorm && cTitleNorm && (eTitleNorm === cTitleNorm || eTitleNorm.includes(cTitleNorm) || cTitleNorm.includes(eTitleNorm)));
+          return tMatch && artistMatchesTarget(existing.artist || '', candArtist, existing.rawTitle || existing.title || '', Boolean(existing.allowTitleCollab));
+        });
+      };
 
-      if (catalogCandidates.length > 0) {
+      const rescueCandidates = [
+        ...canonicalSongHits.slice(0, 4),
+        ...(mxmMetaTracks || []).slice(0, 2),
+        ...(lfmMetaTracks || []).slice(0, 2)
+      ]
+        .filter((c: any) => c?.title && c?.artist && !isHitAlreadyPresent(c.title, c.artist) && !isImpostorForQuery(c))
+        .slice(0, 4);
+
+      if (rescueCandidates.length > 0) {
         const resolvedCatalog = await Promise.all(
-          catalogCandidates.map((c: any) => resolveDirectStreamTrack(c.title, c.artist))
+          rescueCandidates.map((c: any) =>
+            resolveDirectStreamTrack(c.title, c.artist, c.coverUrl || '', c.album || '', Number(c.duration) || 0)
+          )
         );
         for (const t of resolvedCatalog) {
           if (!t?.streamUrl || isImpostorForQuery(t)) continue;
@@ -2676,86 +2930,77 @@ app.get(['/api/search', '/search'], async (req, res) => {
       console.error('Search parallel error:', searchErr);
     }
 
-    allTracks.sort((a, b) => {
-      const normalize = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const qNorm = normalize(query);
-      const aTitleNorm = normalize(a.title);
-      const bTitleNorm = normalize(b.title);
-      const aArtistNorm = normalize(a.artist);
-      const bArtistNorm = normalize(b.artist);
+    // Deterministic Official Relevance + Canonical Authority Scorer
+    const scoreTrack = (t: any): number => {
+      let score = 0;
+      const tTitleNorm = normalizeMatchText(t.title || '');
+      const tArtistNorm = normalizeMatchText(t.artist || '');
+      const tTitleLow = foldDiacritics((t.title || '').toLowerCase());
+      const tArtistLow = foldDiacritics((t.artist || '').toLowerCase());
 
-      const aTitle = (a.title || '').toLowerCase();
-      const bTitle = (b.title || '').toLowerCase();
-      const aArtist = (a.artist || '').toLowerCase();
-      const bArtist = (b.artist || '').toLowerCase();
-
-      const isFamous = (name: string, norm: string) =>
-        FEATURED_ARTISTS.some(f => {
-          const fNorm = normalize(f.name);
-          return norm.includes(fNorm) || fNorm.includes(norm) || name.includes(f.name.toLowerCase()) || f.name.toLowerCase().includes(name);
-        });
-      const aFamous = isFamous(aArtist, aArtistNorm);
-      const bFamous = isFamous(bArtist, bArtistNorm);
-
-      const queryIsArtist = FEATURED_ARTISTS.some(f => normalize(f.name) === qNorm || f.name.toLowerCase() === queryLower);
-      const aArtExact = aArtistNorm === qNorm || aArtist === queryLower;
-      const bArtExact = bArtistNorm === qNorm || bArtist === queryLower;
-
-      if (queryIsArtist) {
-        if (aArtExact && !bArtExact) return -1;
-        if (bArtExact && !aArtExact) return 1;
+      // 1. Canonical Global Hit Authority (Deezer + iTunes top matches)
+      for (let i = 0; i < Math.min(canonicalSongHits.length, 6); i++) {
+        const canon = canonicalSongHits[i];
+        const cTitleNorm = normalizeMatchText(canon.title);
+        const titleOk = tTitleNorm === cTitleNorm || (cTitleNorm.length >= 3 && (tTitleNorm.includes(cTitleNorm) || cTitleNorm.includes(tTitleNorm)));
+        const artistOk = artistMatchesTarget(t.artist || '', canon.artist, t.rawTitle || t.title || '', Boolean(t.allowTitleCollab));
+        if (titleOk && artistOk) {
+          score += i === 0 ? 6000 : Math.max(2500, 5000 - i * 600);
+          if (tTitleNorm === cTitleNorm) score += 800;
+          break;
+        }
       }
 
-      const aExact = aTitleNorm === qNorm || aTitle === queryLower;
-      const bExact = bTitleNorm === qNorm || bTitle === queryLower;
-
-      if (aExact && bExact) {
-        if (aFamous && !bFamous) return -1;
-        if (!aFamous && bFamous) return 1;
+      // 2. Exact Title Match
+      if (queryNorm && tTitleNorm === queryNorm) {
+        score += 2200;
+      } else if (queryNorm && tTitleNorm.startsWith(queryNorm)) {
+        score += 900;
       }
 
-      if (aExact && !bExact) return -1;
-      if (bExact && !aExact) return 1;
+      // 3. Split "<Song> <Artist>" Match vs Title-Stuffed Bootleg Penalty
+      if (queryTokens.length >= 2) {
+        const titleMatchedCount = queryTokens.filter(tok => tTitleNorm.includes(tok)).length;
+        const artistMatchedCount = queryTokens.filter(tok => tArtistNorm.includes(tok)).length;
+        const combinedMatchedCount = queryTokens.filter(tok => tTitleNorm.includes(tok) || tArtistNorm.includes(tok)).length;
 
-      if (aArtExact && !bArtExact) return -1;
-      if (bArtExact && !aArtExact) return 1;
-      if (aArtExact && bArtExact) {
-        if (aFamous && !bFamous) return -1;
-        if (!aFamous && bFamous) return 1;
+        if (combinedMatchedCount === queryTokens.length && titleMatchedCount >= 1 && artistMatchedCount >= 1) {
+          score += 2800;
+        } else if (titleMatchedCount === queryTokens.length && artistMatchedCount === 0 && !isMajorPublisherLabel(t.label || '')) {
+          // Suspicious: ALL query words (song + artist) stuffed into track title by unrelated artist!
+          score -= 3500;
+        }
       }
 
-      const aArtStarts = aArtistNorm.startsWith(qNorm) || aArtist.startsWith(queryLower);
-      const bArtStarts = bArtistNorm.startsWith(qNorm) || bArtist.startsWith(queryLower);
-      if (aArtStarts && !bArtStarts) return -1;
-      if (bArtStarts && !aArtStarts) return 1;
+      // 4. Artist Search Match & Famous Artist Authority
+      const artExact = tArtistNorm === queryNorm || tArtistLow === queryLower;
+      if (artExact) score += 1500;
+      else if (queryNorm && tArtistNorm.includes(queryNorm)) score += 600;
 
-      if (aFamous && !bFamous && (aArtist.includes(queryLower) || aTitle.includes(queryLower))) return -1;
-      if (!aFamous && bFamous && (bArtist.includes(queryLower) || bTitle.includes(queryLower))) return 1;
-
-      const aStarts = aTitleNorm.startsWith(qNorm) || aTitle.startsWith(queryLower);
-      const bStarts = bTitleNorm.startsWith(qNorm) || bTitle.startsWith(queryLower);
-      if (aStarts && bStarts) {
-        if (aFamous && !bFamous) return -1;
-        if (!aFamous && bFamous) return 1;
+      const isFamous = FEATURED_ARTISTS.some(f => {
+        const fNorm = normalizeMatchText(f.name);
+        return tArtistNorm.includes(fNorm) || fNorm === tArtistNorm;
+      });
+      if (isFamous && (tArtistLow.includes(queryLower) || tTitleLow.includes(queryLower) || queryTokens.some(tok => tTitleNorm.includes(tok) || tArtistNorm.includes(tok)))) {
+        score += 700;
       }
-      if (aStarts && !bStarts) return -1;
-      if (bStarts && !aStarts) return 1;
 
-      const aArt = aArtistNorm.includes(qNorm) || aArtist.includes(queryLower);
-      const bArt = bArtistNorm.includes(qNorm) || bArtist.includes(queryLower);
-      if (aArt && !bArt) return -1;
-      if (bArt && !aArt) return 1;
+      // 5. Major Publisher Label & Source Audio Fidelity
+      if (isMajorPublisherLabel(t.label || '')) score += 650;
+      if (t.source === 'jiosaavn') score += 300;
+      else if (t.source === 'soundcloud') score += 200;
+      else if (t.source === 'audius') score += 150;
 
-      const aTitleContains = aTitleNorm.includes(qNorm) || aTitle.includes(queryLower);
-      const bTitleContains = bTitleNorm.includes(qNorm) || bTitle.includes(queryLower);
-      if (aTitleContains && !bTitleContains) return -1;
-      if (bTitleContains && !aTitleContains) return 1;
+      // Mild tie-breaker preference for original un-tagged studio track over "(Remastered)" when equal
+      if (/\((?:[^)]*\bremaster)/i.test(t.title || '')) score -= 40;
 
-      return 0;
-    });
+      return score;
+    };
+
+    allTracks.sort((a, b) => scoreTrack(b) - scoreTrack(a));
 
     // Guarantee 100% of returned tracks have a live direct streamUrl for strict background playback
-    res.json(allTracks.filter(t => Boolean(t.streamUrl)).slice(0, 300));
+    res.json(allTracks.filter(t => Boolean(t.streamUrl)).slice(0, 200));
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: 'Internal server error' });
