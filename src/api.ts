@@ -36,7 +36,7 @@ function normalizeTrackList(data: any[]): any[] {
 export const searchTracks = async (term: string): Promise<any[]> => {
   try {
     const data = await tryFetchBackendJson<any[]>(`/api/search?q=${encodeURIComponent(term)}`);
-    if (Array.isArray(data)) {
+    if (Array.isArray(data) && data.length > 0) {
       return normalizeTrackList(data);
     }
     const direct = await directSearchTracks(term);

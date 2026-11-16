@@ -93,6 +93,7 @@ export default function Player({
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const [isPiPOpen, setIsPiPOpen] = useState(false);
   const [resolvedPlaybackUrl, setResolvedPlaybackUrl] = useState<string | null>(null);
+  const [scrubPreviewTime, setScrubPreviewTime] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -101,6 +102,8 @@ export default function Player({
   const prewarmedTrackIdsRef = useRef<Set<string>>(new Set());
   const loadedStreamUrlRef = useRef<string | null>(null);
   const nativeLoadedUrlRef = useRef<string | null>(null);
+  const pendingSeekRef = useRef<number | null>(null);
+  const lastSeekAtRef = useRef<number>(0);
   const progressRef = useRef(0);
   const durationRef = useRef(0);
   const volumeRef = useRef(1);
@@ -207,7 +210,13 @@ export default function Player({
 
   useEffect(() => {
     retryCountRef.current = 0;
+    pendingSeekRef.current = null;
+    lastSeekAtRef.current = 0;
+    setScrubPreviewTime(null);
     setProgress(0);
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress = 0;
+    }
     setDuration(currentTrack?.duration ? currentTrack.duration / 1000 : 0);
   }, [currentTrack?.id]);
 
@@ -412,8 +421,12 @@ export default function Player({
       try {
         const l1 = await AuraMedia3.addListener('playbackProgress', (ev) => {
           if (!usingNativeMedia3Ref.current) return;
-          if (typeof ev.positionSec === 'number' && isFinite(ev.positionSec)) {
+          const justSeeked = performance.now() - lastSeekAtRef.current < 400;
+          if (!justSeeked && typeof ev.positionSec === 'number' && isFinite(ev.positionSec)) {
             setProgress(ev.positionSec);
+            if (typeof window !== 'undefined') {
+              (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress = ev.positionSec;
+            }
             window.dispatchEvent(new CustomEvent('playerProgress', { detail: ev.positionSec }));
           }
           if (typeof ev.durationSec === 'number' && isFinite(ev.durationSec) && ev.durationSec > 0) {
@@ -425,8 +438,12 @@ export default function Player({
           if (typeof ev.durationSec === 'number' && isFinite(ev.durationSec) && ev.durationSec > 0) {
             setDuration(ev.durationSec);
           }
-          if (typeof ev.positionSec === 'number' && isFinite(ev.positionSec)) {
+          const justSeeked = performance.now() - lastSeekAtRef.current < 400;
+          if (!justSeeked && typeof ev.positionSec === 'number' && isFinite(ev.positionSec)) {
             setProgress(ev.positionSec);
+            if (typeof window !== 'undefined') {
+              (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress = ev.positionSec;
+            }
           }
           if (!ev.isBuffering && ev.isPlaying !== isPlayingRef.current) {
             callbacksRef.current.onExternalPlayingChange?.(ev.isPlaying);
@@ -601,16 +618,51 @@ export default function Player({
     }
   }, [currentTrack?.id, activeStreamUrl, isPlaying, isDirectAudio, usingNativeMedia3]);
 
+  const performSeek = (rawTime: number) => {
+    if (!isFinite(rawTime)) return;
+    const audio = audioRef.current;
+    const audioDur = audio && isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    const seekableEnd =
+      audio && audio.seekable && audio.seekable.length > 0
+        ? audio.seekable.end(audio.seekable.length - 1)
+        : 0;
+    const effectiveMax = Math.max(durationRef.current || 0, audioDur, seekableEnd);
+    const targetTime =
+      effectiveMax > 0 ? Math.min(effectiveMax, Math.max(0, rawTime)) : Math.max(0, rawTime);
+
+    lastSeekAtRef.current = performance.now();
+    progressRef.current = targetTime;
+    setProgress(targetTime);
+    setScrubPreviewTime(null);
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress = targetTime;
+      window.dispatchEvent(new CustomEvent('playerProgress', { detail: targetTime }));
+    }
+
+    if (usingNativeMedia3Ref.current) {
+      AuraMedia3.seekTo({ positionSec: targetTime }).catch(() => {});
+    } else if (audio) {
+      if (audio.readyState >= 1) {
+        pendingSeekRef.current = null;
+        try {
+          audio.currentTime = targetTime;
+        } catch {
+          pendingSeekRef.current = targetTime;
+        }
+      } else {
+        pendingSeekRef.current = targetTime;
+      }
+    }
+  };
+
+  const performSeekRef = useRef(performSeek);
+  performSeekRef.current = performSeek;
+
   useEffect(() => {
     const handleSeek = (e: Event) => {
       const time = (e as CustomEvent).detail;
       if (typeof time === 'number') {
-        if (usingNativeMedia3Ref.current) {
-          AuraMedia3.seekTo({ positionSec: time }).catch(() => {});
-        } else if (audioRef.current) {
-          audioRef.current.currentTime = time;
-        }
-        setProgress(time);
+        performSeekRef.current(time);
       }
     };
     window.addEventListener('playerSeek', handleSeek);
@@ -697,14 +749,7 @@ export default function Player({
   };
 
   const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = Number(e.target.value);
-    if (usingNativeMedia3Ref.current) {
-      AuraMedia3.seekTo({ positionSec: time }).catch(() => {});
-    } else if (audioRef.current) {
-      audioRef.current.currentTime = time;
-    }
-    setProgress(time);
-    window.dispatchEvent(new CustomEvent('playerProgress', { detail: time }));
+    performSeek(Number(e.target.value));
   };
 
   const applyVolume = (vol: number) => {
@@ -738,23 +783,72 @@ export default function Player({
         playsInline
         preload="auto"
         onCanPlay={() => {
-          if (isPlaying && isDirectAudio && !usingNativeMedia3 && audioRef.current && audioRef.current.paused) {
-            audioRef.current.play().catch(() => {});
+          const audio = audioRef.current;
+          if (!audio || !isDirectAudio || usingNativeMedia3) return;
+          if (pendingSeekRef.current !== null && audio.readyState >= 1) {
+            const queued = pendingSeekRef.current;
+            pendingSeekRef.current = null;
+            try {
+              audio.currentTime = queued;
+            } catch {
+              pendingSeekRef.current = queued;
+            }
+          }
+          if (isPlaying && audio.paused) {
+            audio.play().catch(() => {});
           }
         }}
         onTimeUpdate={() => {
-          if (audioRef.current && isDirectAudio && !usingNativeMedia3) {
-            const t = audioRef.current.currentTime;
-            const d = audioRef.current.duration;
-            if (!isNaN(t)) setProgress(t);
+          const audio = audioRef.current;
+          if (audio && isDirectAudio && !usingNativeMedia3) {
+            const t = audio.currentTime;
+            const d = audio.duration;
             if (!isNaN(d) && isFinite(d) && d > 0) setDuration(d);
-            window.dispatchEvent(new CustomEvent('playerProgress', { detail: t }));
+            const justSeeked = performance.now() - lastSeekAtRef.current < 400;
+            if (!audio.seeking && !justSeeked && !isNaN(t)) {
+              setProgress(t);
+              if (typeof window !== 'undefined') {
+                (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress = t;
+              }
+              window.dispatchEvent(new CustomEvent('playerProgress', { detail: t }));
+            }
           }
         }}
         onLoadedMetadata={() => {
-          if (audioRef.current && isDirectAudio && !usingNativeMedia3) {
-            const d = audioRef.current.duration;
+          const audio = audioRef.current;
+          if (audio && isDirectAudio && !usingNativeMedia3) {
+            const d = audio.duration;
             if (!isNaN(d) && isFinite(d) && d > 0) setDuration(d);
+            if (pendingSeekRef.current !== null && audio.readyState >= 1) {
+              const queued = pendingSeekRef.current;
+              pendingSeekRef.current = null;
+              try {
+                audio.currentTime = queued;
+              } catch {
+                // Retry on canplay if metadata seek rejected
+              }
+            }
+          }
+        }}
+        onDurationChange={() => {
+          const audio = audioRef.current;
+          if (audio && isDirectAudio && !usingNativeMedia3) {
+            const d = audio.duration;
+            if (!isNaN(d) && isFinite(d) && d > 0) setDuration(d);
+          }
+        }}
+        onSeeked={() => {
+          const audio = audioRef.current;
+          if (audio && isDirectAudio && !usingNativeMedia3) {
+            lastSeekAtRef.current = 0;
+            const t = audio.currentTime;
+            if (!isNaN(t) && isFinite(t)) {
+              setProgress(t);
+              if (typeof window !== 'undefined') {
+                (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress = t;
+              }
+              window.dispatchEvent(new CustomEvent('playerProgress', { detail: t }));
+            }
           }
         }}
         onPlay={() => {
@@ -959,6 +1053,9 @@ export default function Player({
         <MobileNowPlaying
           currentTrack={currentTrack}
           isPlaying={isPlaying}
+          progress={progress}
+          duration={duration}
+          onSeekTime={performSeek}
           onPlayPause={onPlayPause}
           onNext={onNext}
           onPrev={onPrev}
@@ -1168,12 +1265,14 @@ export default function Player({
           </div>
 
           <div className="flex items-center gap-3 w-full max-w-md text-[11px] text-white/75 font-medium tabular-nums">
-            <span className="w-10 text-right">{formatTime(progress)}</span>
+            <span className="w-10 text-right">{formatTime(scrubPreviewTime ?? progress)}</span>
             <WavingProgressBar
               progress={progress}
               duration={duration}
               isPlaying={isPlaying}
+              onSeekTime={performSeek}
               onSeekChange={handleSeekChange}
+              onScrubPreview={setScrubPreviewTime}
               showHoverTooltip
               formatTime={formatTime}
               ariaLabel="Seek progress"

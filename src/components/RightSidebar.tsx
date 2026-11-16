@@ -50,12 +50,26 @@ export default function RightSidebar({
   const [targetLanguage, setTargetLanguage] = useState<string>('');
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
 
-  const [currentTime, setCurrentTime] = useState(0);
+  const [currentTime, setCurrentTime] = useState<number>(() =>
+    typeof window !== 'undefined'
+      ? (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress ?? 0
+      : 0
+  );
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const latest =
+      typeof window !== 'undefined'
+        ? (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress
+        : undefined;
+    if (typeof latest === 'number' && isFinite(latest)) {
+      setCurrentTime(latest);
+    }
     const handleProgress = (e: Event) => {
-      setCurrentTime((e as CustomEvent).detail);
+      const val = (e as CustomEvent).detail;
+      if (typeof val === 'number' && isFinite(val)) {
+        setCurrentTime(val);
+      }
     };
     window.addEventListener('playerProgress', handleProgress);
     return () => window.removeEventListener('playerProgress', handleProgress);
@@ -70,21 +84,24 @@ export default function RightSidebar({
   const parseLrc = (lrc: string): LrcLine[] => {
     const lines = lrc.split('\n');
     const parsed: LrcLine[] = [];
-    const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+    const timeRegex = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
 
     for (const line of lines) {
-      const match = timeRegex.exec(line);
-      if (match) {
-        const minutes = parseInt(match[1], 10);
-        const seconds = parseInt(match[2], 10);
-        const milliseconds = parseInt(match[3], 10) * (match[3].length === 2 ? 10 : 1);
-        const time = minutes * 60 + seconds + milliseconds / 1000;
+      const matches = [...line.matchAll(timeRegex)];
+      if (matches.length > 0) {
         const text = line.replace(timeRegex, '').trim();
-        if (text) {
+        if (!text) continue;
+        for (const match of matches) {
+          const minutes = parseInt(match[1], 10);
+          const seconds = parseInt(match[2], 10);
+          const msRaw = match[3] || '0';
+          const milliseconds = parseInt(msRaw.padEnd(3, '0').slice(0, 3), 10);
+          const time = minutes * 60 + seconds + milliseconds / 1000;
           parsed.push({ time, text });
         }
       }
     }
+    parsed.sort((a, b) => a.time - b.time);
     return parsed;
   };
 
@@ -124,11 +141,11 @@ export default function RightSidebar({
   const activeLineIndex = useMemo(() => {
     if (syncedLines.length === 0) return -1;
     for (let i = syncedLines.length - 1; i >= 0; i--) {
-      if (currentTime >= syncedLines[i].time) {
+      if (currentTime >= syncedLines[i].time - 0.25) {
         return i;
       }
     }
-    return -1;
+    return 0;
   }, [currentTime, syncedLines]);
 
   useEffect(() => {
@@ -229,19 +246,24 @@ export default function RightSidebar({
                 ) : (
                   <div className="text-white font-bold text-xl leading-relaxed tracking-tight" ref={lyricsContainerRef}>
                     {syncedLines.length > 0 ? (
-                      syncedLines.map((line, idx) => (
-                        <p
-                          key={idx}
-                          onClick={() => handleLineClick(line.time)}
-                          className={`mb-5 cursor-pointer transition-all duration-200 origin-left ${
-                            idx === activeLineIndex
-                              ? 'text-white scale-[1.02]'
-                              : 'text-[#737373] hover:text-[#A3A3A3]'
-                          }`}
-                        >
-                          {line.text}
-                        </p>
-                      ))
+                      syncedLines.map((line, idx) => {
+                        const isActive = idx === activeLineIndex;
+                        return (
+                          <p
+                            key={`${line.time}-${idx}`}
+                            onClick={() => handleLineClick(line.time)}
+                            className={`mb-5 cursor-pointer transition-all duration-300 origin-left ${
+                              isActive
+                                ? `scale-[1.03] aura-lyric-glow ${
+                                    isPlaying ? 'aura-lyric-glow-playing' : ''
+                                  }`
+                                : 'text-white/35 blur-[0.45px] hover:text-white/75 hover:blur-0'
+                            }`}
+                          >
+                            {line.text}
+                          </p>
+                        );
+                      })
                     ) : (
                       <div className="whitespace-pre-wrap text-sm text-[#A3A3A3] leading-relaxed font-medium">
                         {plainLyrics}

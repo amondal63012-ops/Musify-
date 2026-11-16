@@ -36,6 +36,9 @@ import WavingProgressBar from './WavingProgressBar';
 interface MobileNowPlayingProps {
   currentTrack: Track | null;
   isPlaying: boolean;
+  progress?: number;
+  duration?: number;
+  onSeekTime?: (time: number) => void;
   onPlayPause: () => void;
   onNext: () => void;
   onPrev: () => void;
@@ -69,6 +72,9 @@ type NowPlayingMode = 'player' | 'lyrics' | 'queue';
 export default function MobileNowPlaying({
   currentTrack,
   isPlaying,
+  progress: propProgress,
+  duration: propDuration,
+  onSeekTime,
   onPlayPause,
   onNext,
   onPrev,
@@ -91,8 +97,22 @@ export default function MobileNowPlaying({
   isSavingOffline = false,
   onToggleSaveOffline,
 }: MobileNowPlayingProps) {
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [progress, setProgress] = useState<number>(
+    () =>
+      propProgress ??
+      (typeof window !== 'undefined'
+        ? (window as unknown as { __auraPlayerProgress?: number }).__auraPlayerProgress ?? 0
+        : 0)
+  );
+  const [duration, setDuration] = useState<number>(
+    () =>
+      propDuration && propDuration > 0
+        ? propDuration
+        : currentTrack?.duration
+          ? currentTrack.duration / 1000
+          : 0
+  );
+  const [scrubPreviewTime, setScrubPreviewTime] = useState<number | null>(null);
   const [syncedLines, setSyncedLines] = useState<LrcLine[]>([]);
   const [plainLyrics, setPlainLyrics] = useState('');
   const [activeTab, setActiveTab] = useState<NowPlayingMode>('player');
@@ -109,7 +129,7 @@ export default function MobileNowPlaying({
   const topRayRef = useRef<HTMLDivElement>(null);
   const isPlayingRef = useRef(isPlaying);
   const lastSyncRef = useRef<{ songSec: number; wallMs: number }>({
-    songSec: 0,
+    songSec: propProgress ?? 0,
     wallMs: typeof performance !== 'undefined' ? performance.now() : 0,
   });
   isPlayingRef.current = isPlaying;
@@ -125,9 +145,22 @@ export default function MobileNowPlaying({
   }, [currentTrack?.id, currentTrack?.title]);
 
   useEffect(() => {
+    if (typeof propProgress === 'number' && isFinite(propProgress)) {
+      setProgress(propProgress);
+      lastSyncRef.current = { songSec: propProgress, wallMs: performance.now() };
+    }
+  }, [propProgress]);
+
+  useEffect(() => {
+    if (typeof propDuration === 'number' && isFinite(propDuration) && propDuration > 0) {
+      setDuration(propDuration);
+    }
+  }, [propDuration]);
+
+  useEffect(() => {
     const handleProgress = (e: Event) => {
       const time = (e as CustomEvent).detail;
-      if (typeof time === 'number') {
+      if (typeof time === 'number' && isFinite(time)) {
         setProgress(time);
         lastSyncRef.current = { songSec: time, wallMs: performance.now() };
       }
@@ -197,10 +230,12 @@ export default function MobileNowPlaying({
   }, [isPlaying, trackBpm, currentTrack?.id]);
 
   useEffect(() => {
-    if (currentTrack?.duration) {
+    if (propDuration && propDuration > 0) {
+      setDuration(propDuration);
+    } else if (currentTrack?.duration) {
       setDuration(currentTrack.duration / 1000);
     }
-  }, [currentTrack]);
+  }, [currentTrack, propDuration]);
 
   useEffect(() => {
     if (!currentTrack) return;
@@ -222,18 +257,23 @@ export default function MobileNowPlaying({
         if (data?.syncedLyrics) {
           const lines = data.syncedLyrics.split('\n');
           const parsed: LrcLine[] = [];
-          const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+          const timeRegex = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
           lines.forEach((line: string) => {
-            const match = timeRegex.exec(line);
-            if (match) {
-              const minutes = parseInt(match[1], 10);
-              const seconds = parseInt(match[2], 10);
-              const ms = parseInt(match[3].padEnd(3, '0').slice(0, 3), 10);
-              const time = minutes * 60 + seconds + ms / 1000;
+            const matches = [...line.matchAll(timeRegex)];
+            if (matches.length > 0) {
               const text = line.replace(timeRegex, '').trim();
-              if (text) parsed.push({ time, text });
+              if (!text) return;
+              for (const match of matches) {
+                const minutes = parseInt(match[1], 10);
+                const seconds = parseInt(match[2], 10);
+                const msRaw = match[3] || '0';
+                const ms = parseInt(msRaw.padEnd(3, '0').slice(0, 3), 10);
+                const time = minutes * 60 + seconds + ms / 1000;
+                parsed.push({ time, text });
+              }
             }
           });
+          parsed.sort((a, b) => a.time - b.time);
           setSyncedLines(parsed);
           setPlainLyrics('');
         } else if (data?.plainLyrics) {
@@ -257,15 +297,17 @@ export default function MobileNowPlaying({
     };
   }, [currentTrack]);
 
+  const effectiveProgress = scrubPreviewTime ?? progress;
+
   const activeLineIndex = useMemo(() => {
     if (syncedLines.length === 0) return -1;
     for (let i = syncedLines.length - 1; i >= 0; i--) {
-      if (progress >= syncedLines[i].time - 0.25) {
+      if (effectiveProgress >= syncedLines[i].time - 0.25) {
         return i;
       }
     }
     return 0;
-  }, [progress, syncedLines]);
+  }, [effectiveProgress, syncedLines]);
 
   useEffect(() => {
     if (activeTab === 'lyrics' && activeLineIndex !== -1 && lyricsContainerRef.current) {
@@ -276,11 +318,21 @@ export default function MobileNowPlaying({
     }
   }, [activeLineIndex, activeTab]);
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = Number(e.target.value);
+  const commitSeekTime = (time: number) => {
+    if (!isFinite(time)) return;
     setProgress(time);
-    window.dispatchEvent(new CustomEvent('playerSeek', { detail: time }));
-    window.dispatchEvent(new CustomEvent('playerProgress', { detail: time }));
+    setScrubPreviewTime(null);
+    lastSyncRef.current = { songSec: time, wallMs: performance.now() };
+    if (onSeekTime) {
+      onSeekTime(time);
+    } else {
+      window.dispatchEvent(new CustomEvent('playerSeek', { detail: time }));
+      window.dispatchEvent(new CustomEvent('playerProgress', { detail: time }));
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    commitSeekTime(Number(e.target.value));
   };
 
   const formatTime = (time: number) => {
@@ -290,7 +342,7 @@ export default function MobileNowPlaying({
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  const remainingTime = Math.max(0, (duration || 0) - progress);
+  const remainingTime = Math.max(0, (duration || 0) - effectiveProgress);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -370,6 +422,11 @@ export default function MobileNowPlaying({
     <div
       className="fixed inset-0 z-50 bg-[#090909] flex flex-col justify-between overflow-hidden select-none pt-safe pb-safe animate-in fade-in slide-in-from-bottom duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
       onTouchStart={(e) => {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest('[data-no-swipe="true"]') || target?.tagName === 'INPUT') {
+          touchStartYRef.current = null;
+          return;
+        }
         touchStartYRef.current = e.touches[0]?.clientY ?? null;
       }}
       onTouchEnd={(e) => {
@@ -566,7 +623,8 @@ export default function MobileNowPlaying({
           <div className="relative flex-1 min-h-0 mt-1">
             <div
               ref={lyricsContainerRef}
-              className="h-full overflow-y-auto scrollbar-none py-10 space-y-5 pr-2"
+              data-no-swipe="true"
+              className="h-full overflow-y-auto scrollbar-none py-10 space-y-5 px-2 pr-3"
               style={{
                 maskImage: 'linear-gradient(to bottom, transparent 0%, black 12%, black 85%, transparent 100%)',
                 WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 12%, black 85%, transparent 100%)',
@@ -578,14 +636,13 @@ export default function MobileNowPlaying({
                   const distance = Math.abs(idx - activeLineIndex);
                   return (
                     <p
-                      key={idx}
-                      onClick={() => {
-                        setProgress(line.time);
-                        window.dispatchEvent(new CustomEvent('playerSeek', { detail: line.time }));
-                      }}
-                      className={`font-display text-[25px] sm:text-[28px] font-extrabold leading-[1.2] tracking-tight cursor-pointer transition-all duration-300 ${
+                      key={`${line.time}-${idx}`}
+                      onClick={() => commitSeekTime(line.time)}
+                      className={`font-display text-[25px] sm:text-[28px] font-extrabold leading-[1.24] tracking-tight cursor-pointer origin-left transition-all duration-300 ${
                         isActive
-                          ? 'text-white opacity-100 blur-0'
+                          ? `scale-[1.03] opacity-100 blur-0 aura-lyric-glow ${
+                              isPlaying ? 'aura-lyric-glow-playing' : ''
+                            }`
                           : vocalFocus
                             ? distance <= 1
                               ? 'text-white/20 blur-[1.2px] hover:text-white/60 hover:blur-0'
@@ -665,17 +722,21 @@ export default function MobileNowPlaying({
       {/* SHARED BOTTOM CONTROLS DOCK (Consistent Frosted Glass across Artwork, Lyrics, Queue) */}
       <div className="relative z-20 px-7 sm:px-10 pb-6 pt-3 flex flex-col gap-5 max-w-lg w-full mx-auto shrink-0">
         {/* Waving Media Playback Progress Scrubber + Centered Lossless Label + Elapsed / Duration Timestamps */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" data-no-swipe="true">
           <WavingProgressBar
             progress={progress}
             duration={duration}
             isPlaying={isPlaying}
+            onSeekTime={commitSeekTime}
             onSeekChange={handleSeek}
+            onScrubPreview={setScrubPreviewTime}
+            showHoverTooltip
+            formatTime={formatTime}
             ariaLabel="Seek playback position"
           />
 
           <div className="grid grid-cols-3 items-center text-[11px] font-medium text-white/75 tabular-nums">
-            <span className="text-left">{formatTime(progress)}</span>
+            <span className="text-left">{formatTime(effectiveProgress)}</span>
             <span className="inline-flex items-center justify-center gap-1 text-[10px] font-semibold text-white/85 bg-white/[0.12] border border-white/[0.16] backdrop-blur-md px-2 py-0.5 rounded-[4px] mx-auto whitespace-nowrap">
               <AudioLines className="w-3 h-3" />
               <span>{qualityLabel}</span>

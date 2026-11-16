@@ -44,7 +44,7 @@ export async function tryFetchBackendJson<T = unknown>(
   try {
     const res = await fetch(resolveApiUrl(path), {
       ...init,
-      signal: init?.signal || AbortSignal.timeout(12000),
+      signal: init?.signal || AbortSignal.timeout(18000),
     });
     if (!res.ok) return null;
     const contentType = res.headers.get('content-type') || '';
