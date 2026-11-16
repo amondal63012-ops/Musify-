@@ -28,6 +28,7 @@ import ExploreView from './ExploreView';
 import BrowseCategories, { BrowseCategoryItem } from './BrowseCategories';
 import PlaylistView from './PlaylistView';
 import MobileLibraryView from './MobileLibraryView';
+import { getCrispCoverUrl } from '../lib/coverUrl';
 import ArtistView from './ArtistView';
 import ArtistsListView from './ArtistsListView';
 import ProfileView from './ProfileView';
@@ -466,7 +467,7 @@ const MainView = forwardRef(({
                     className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-[#222222] text-left transition cursor-pointer"
                   >
                     <img
-                      src={t.coverUrl || ECHO_COVERS.global}
+                      src={getCrispCoverUrl(t.coverUrl, ECHO_COVERS.global)}
                       alt={t.title}
                       referrerPolicy="no-referrer"
                       className="w-10 h-10 rounded-lg object-cover shrink-0"
@@ -670,7 +671,7 @@ const MainView = forwardRef(({
                           >
                             <div className="relative aspect-square mb-2 rounded-[4px] overflow-hidden bg-[#191919]">
                               <img
-                                src={track.coverUrl || activeCategory.imageUrl}
+                                src={getCrispCoverUrl(track.coverUrl, activeCategory.imageUrl)}
                                 alt={track.title}
                                 referrerPolicy="no-referrer"
                                 onError={(e) => {
@@ -792,7 +793,7 @@ const MainView = forwardRef(({
                         >
                           <div className="flex items-center gap-4 min-w-0 flex-1">
                             <img
-                              src={topTrack.coverUrl || ECHO_COVERS.global}
+                              src={getCrispCoverUrl(topTrack.coverUrl, ECHO_COVERS.global)}
                               alt={topTrack.title}
                               referrerPolicy="no-referrer"
                               className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover shadow-lg shrink-0"

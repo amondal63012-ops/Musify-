@@ -86,7 +86,7 @@ function cleanText(str: string): string {
 
 function getHighResImage(url: string): string {
   if (!url) return '';
-  return url.replace('150x150.jpg', '500x500.jpg').replace('50x50.jpg', '500x500.jpg');
+  return url.replace(/([-_])(?:50x50|150x150)\.(jpg|jpeg|webp|png)(?=$|\?)/gi, '$1500x500.$2');
 }
 
 function mapJioSaavnSong(song: any) {
@@ -520,7 +520,7 @@ function mapAudiusTrack(t: any, query: string = '', strictArtistTarget: string =
   }
 
   const streamUrl = `https://api.audius.co/v1/tracks/${t.id}/stream?app_name=AuraMusic`;
-  const coverUrl = t.artwork?.['480x480'] || t.artwork?.['1000x1000'] || t.artwork?.['150x150'] || '';
+  const coverUrl = t.artwork?.['1000x1000'] || t.artwork?.['480x480'] || t.artwork?.['150x150'] || '';
 
   return {
     id: 'audius_' + t.id,
@@ -744,7 +744,9 @@ function mapSoundCloudTrack(
   if (!trans || !trans.url) return null;
 
   const rawCover = t.artwork_url || t.user?.avatar_url || '';
-  const cover = rawCover ? rawCover.replace('-large', '-t500x500').replace('-badge', '-t500x500') : '';
+  const cover = rawCover
+    ? rawCover.replace(/-(?:large|badge|small|tiny|mini|crop|t67x67|t120x120|t200x200|t300x300)(?=\.[a-z0-9]+(?:$|\?))/i, '-t500x500')
+    : '';
   const isProgressive = trans.format?.protocol === 'progressive';
   const streamUrl = isProgressive
     ? `/api/soundcloud/stream?transcoding=${encodeURIComponent(trans.url)}&proto=progressive`
@@ -1126,7 +1128,7 @@ async function searchGaanaOfficialTracks(query: string, strictArtistTarget: stri
       if (!coverUrl) {
         coverUrl = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
       } else {
-        coverUrl = coverUrl.replace(/size_s\.jpg|size_m\.jpg|175x175\.jpg|50x50\.jpg/, 'size_l.jpg');
+        coverUrl = coverUrl.replace(/(?:size_xs|size_s|size_m|175x175|50x50)\.(jpg|jpeg|webp)/i, 'size_l.$1');
       }
 
       const streamUrl = `/api/gaana/stream.m3u8?seokey=${encodeURIComponent(tr.seokey)}&proto=hls`;
@@ -1445,7 +1447,11 @@ async function searchYouTubeMusicMetadata(query: string, strictArtistTarget: str
 
       const thumbs = r.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
       const rawThumb = thumbs[thumbs.length - 1]?.url || '';
-      const coverUrl = rawThumb ? rawThumb.replace(/=w\d+-h\d+[^&]*/, '=w600-h600-l90-rj') : '';
+      const coverUrl = rawThumb
+        ? rawThumb
+            .replace(/=w\d+-h\d+[^&]*/, '=w600-h600-l90-rj')
+            .replace(/=s\d+[^&]*/, '=w600-h600-l90-rj')
+        : '';
 
       tracks.push({
         id: 'ytm_' + (r.playlistItemData?.videoId || `${i}`),
@@ -2034,7 +2040,7 @@ async function fetchItunesTopTracksMetadata(limit: number = 20): Promise<any[]> 
         if (!title || !artist || isUnofficialOrRemix(title, artist)) return null;
         const images = entry?.['im:image'] || [];
         const coverRaw = images[images.length - 1]?.label || '';
-        const coverUrl = coverRaw ? coverRaw.replace(/\d+x\d+bb/, '500x500bb') : '';
+        const coverUrl = coverRaw ? coverRaw.replace(/\d+x\d+bb/, '600x600bb') : '';
         return { title, artist, album: cleanText(entry?.['im:collection']?.['im:name']?.label || 'Global Top Hits'), coverUrl };
       })
       .filter(Boolean);
@@ -2596,7 +2602,7 @@ app.get(['/api/artists/search', '/artists/search'], async (req, res) => {
       const key = nameClean.toLowerCase();
       if (seenNames.has(key)) continue;
       seenNames.add(key);
-      const highRes = a.image.replace(/50x50\.jpg|150x150\.jpg/, '500x500.jpg');
+      const highRes = getHighResImage(a.image);
       results.push({
         id: String(a.id),
         name: nameClean,
@@ -2647,7 +2653,7 @@ app.get(['/api/artist/:id', '/artist/:id'], async (req, res) => {
       try {
         const pageData = await fetchSaavnJson(`https://www.jiosaavn.com/api.php?__call=artist.getArtistPageDetails&artistId=${artistParam}&api_version=4&_format=json&_marker=0&ctx=web6dot0&n_song=100`);
         if (pageData?.name) {
-          const highRes = (pageData.image || '').replace(/50x50\.jpg|150x150\.jpg/, '500x500.jpg');
+          const highRes = getHighResImage(pageData.image || '');
           artistObj = {
             id: String(pageData.artistId || artistParam),
             name: cleanText(pageData.name),
@@ -2688,7 +2694,7 @@ app.get(['/api/artist/:id', '/artist/:id'], async (req, res) => {
             verified: true
           };
         } else if (found) {
-          const highRes = (found.image || '').replace(/50x50\.jpg|150x150\.jpg/, '500x500.jpg');
+          const highRes = getHighResImage(found.image || '');
           artistObj = {
             id: String(found.id),
             name: cleanText(found.name),

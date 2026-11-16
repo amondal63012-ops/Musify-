@@ -13,6 +13,7 @@ import {
 import { Track } from '../../types';
 import { canSaveTrackOffline } from '../../lib/offlineVault';
 import { ECHO_COVERS } from '../echoCovers';
+import { getCrispCoverUrl } from '../../lib/coverUrl';
 
 interface SongRowProps {
   track: Track;
@@ -83,7 +84,7 @@ export default function SongRow({
 
         <div className="relative w-12 h-12 rounded-[2px] overflow-hidden shrink-0 bg-[#191919]">
           <img
-            src={track.coverUrl || ECHO_COVERS.global}
+            src={getCrispCoverUrl(track.coverUrl, ECHO_COVERS.global)}
             alt={track.title}
             referrerPolicy="no-referrer"
             onError={(e) => {

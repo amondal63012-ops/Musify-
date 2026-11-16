@@ -3,6 +3,7 @@ import { Play, Flame } from 'lucide-react';
 import { getCharts, getViralSongs, getArtists } from '../api';
 import { Track, Artist, Playlist, SavedAlbum } from '../types';
 import { ECHO_COVERS, POSTER_COVERS } from './echoCovers';
+import { getCrispCoverUrl } from '../lib/coverUrl';
 import SectionHeader from './design/SectionHeader';
 import MusicCard from './design/MusicCard';
 import AlbumCard from './design/AlbumCard';
@@ -183,7 +184,7 @@ export default function ExploreView({
             >
               <div className="relative aspect-[16/10] sm:aspect-square rounded-xl overflow-hidden mb-3 bg-[#111111]">
                 <img
-                  src={chart.coverUrl || ECHO_COVERS.global}
+                  src={getCrispCoverUrl(chart.coverUrl, ECHO_COVERS.global)}
                   alt={chart.title}
                   referrerPolicy="no-referrer"
                   onError={(e) => {

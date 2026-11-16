@@ -25,6 +25,7 @@ import { isNativeAndroid, resolveApiUrl } from '../lib/apiConfig';
 import { resolveTrackFallback } from '../api';
 import { AuraMedia3, canUseNativeMedia3 } from '../lib/nativeAudioBridge';
 import { ECHO_COVERS } from './echoCovers';
+import { getCrispCoverUrl } from '../lib/coverUrl';
 import WavingProgressBar from './WavingProgressBar';
 
 interface PlayerProps {
@@ -774,7 +775,7 @@ export default function Player({
 
   const sourceLabel = getSourceLabel(currentTrack?.source);
   const canOfflineSave = canSaveTrackOffline(currentTrack);
-  const barCoverUrl = currentTrack?.coverUrl || ECHO_COVERS.global;
+  const barCoverUrl = getCrispCoverUrl(currentTrack?.coverUrl, ECHO_COVERS.global);
 
   return (
     <>

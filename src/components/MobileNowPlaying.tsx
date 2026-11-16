@@ -31,6 +31,7 @@ import { directFetchLyrics } from '../lib/directMusicProvider';
 import { canSaveTrackOffline } from '../lib/offlineVault';
 import QueuePanel from './design/QueuePanel';
 import { ECHO_COVERS } from './echoCovers';
+import { getCrispCoverUrl } from '../lib/coverUrl';
 import WavingProgressBar from './WavingProgressBar';
 
 interface MobileNowPlayingProps {
@@ -416,7 +417,8 @@ export default function MobileNowPlaying({
       ? 'Local Lossless'
       : '320k Lossless';
 
-  const backdropCover = currentTrack.coverUrl || ECHO_COVERS.global;
+  const crispCover = getCrispCoverUrl(currentTrack.coverUrl, ECHO_COVERS.global);
+  const backdropCover = crispCover;
 
   return (
     <div
@@ -534,7 +536,7 @@ export default function MobileNowPlaying({
               }`}
             >
               <img
-                src={currentTrack.coverUrl || ECHO_COVERS.global}
+                src={crispCover}
                 alt={currentTrack.title}
                 referrerPolicy="no-referrer"
                 onError={(e) => {
@@ -595,7 +597,7 @@ export default function MobileNowPlaying({
               aria-label="Return to Artwork view"
             >
               <img
-                src={currentTrack.coverUrl || ECHO_COVERS.global}
+                src={crispCover}
                 alt={currentTrack.title}
                 referrerPolicy="no-referrer"
                 onError={(e) => {
@@ -917,7 +919,7 @@ export default function MobileNowPlaying({
           >
             <div className="flex items-center gap-3 pb-4 border-b border-[#2A2A2A]">
               <img
-                src={currentTrack.coverUrl || ECHO_COVERS.global}
+                src={crispCover}
                 alt={currentTrack.title}
                 referrerPolicy="no-referrer"
                 className="w-12 h-12 rounded-md object-cover shrink-0"

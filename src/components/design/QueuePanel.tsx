@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Track } from '../../types';
 import { ECHO_COVERS } from '../echoCovers';
+import { getCrispCoverUrl } from '../../lib/coverUrl';
 
 interface QueuePanelProps {
   currentTrack: Track | null;
@@ -68,7 +69,7 @@ export default function QueuePanel({
           <div className="flex items-center gap-3 p-3 rounded-xl bg-[#222222] border border-white/25">
             <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-[#111111]">
               <img
-                src={currentTrack.coverUrl || ECHO_COVERS.global}
+                src={getCrispCoverUrl(currentTrack.coverUrl, ECHO_COVERS.global)}
                 alt={currentTrack.title}
                 referrerPolicy="no-referrer"
                 onError={(e) => {
@@ -149,7 +150,7 @@ export default function QueuePanel({
                   >
                     <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-[#111111]">
                       <img
-                        src={track.coverUrl || ECHO_COVERS.global}
+                        src={getCrispCoverUrl(track.coverUrl, ECHO_COVERS.global)}
                         alt={track.title}
                         referrerPolicy="no-referrer"
                         onError={(e) => {
@@ -224,7 +225,7 @@ export default function QueuePanel({
               >
                 <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-[#191919]">
                   <img
-                    src={track.coverUrl || ECHO_COVERS.global}
+                    src={getCrispCoverUrl(track.coverUrl, ECHO_COVERS.global)}
                     alt={track.title}
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover"

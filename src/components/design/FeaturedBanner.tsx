@@ -2,6 +2,7 @@ import React from 'react';
 import { Play, Pause, Shuffle } from 'lucide-react';
 import { Track } from '../../types';
 import { ECHO_COVERS } from '../echoCovers';
+import { getCrispCoverUrl } from '../../lib/coverUrl';
 
 interface FeaturedBannerProps {
   track: Track;
@@ -27,7 +28,7 @@ export default function FeaturedBanner({
     >
       {/* Subtle darkened artwork blur ambient layer (strictly monochrome contrast scrim) */}
       <img
-        src={track.coverUrl || ECHO_COVERS.global}
+        src={getCrispCoverUrl(track.coverUrl, ECHO_COVERS.global)}
         alt=""
         aria-hidden="true"
         referrerPolicy="no-referrer"
@@ -38,7 +39,7 @@ export default function FeaturedBanner({
       <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-5 sm:gap-7">
         <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-xl overflow-hidden border border-[#303030] shadow-2xl shrink-0 bg-[#111111]">
           <img
-            src={track.coverUrl || ECHO_COVERS.global}
+            src={getCrispCoverUrl(track.coverUrl, ECHO_COVERS.global)}
             alt={track.title}
             referrerPolicy="no-referrer"
             onError={(e) => {

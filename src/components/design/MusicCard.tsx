@@ -1,6 +1,7 @@
 import React from 'react';
 import { Play, Pause } from 'lucide-react';
 import { ECHO_COVERS } from '../echoCovers';
+import { getCrispCoverUrl } from '../../lib/coverUrl';
 
 interface MusicCardProps {
   title: string;
@@ -38,7 +39,7 @@ export default function MusicCard({
     >
       <div className="relative mb-2 w-full aspect-square rounded-[4px] overflow-hidden bg-[#191919]">
         <img
-          src={coverUrl || ECHO_COVERS.global}
+          src={getCrispCoverUrl(coverUrl, ECHO_COVERS.global)}
           alt={title}
           referrerPolicy="no-referrer"
           onError={(e) => {

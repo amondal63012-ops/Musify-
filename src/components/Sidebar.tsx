@@ -18,6 +18,7 @@ import { AppView, Playlist, Track } from '../types';
 import AuraLogo from './design/AuraLogo';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ECHO_COVERS } from './echoCovers';
+import { getCrispCoverUrl } from '../lib/coverUrl';
 
 interface SidebarProps {
   currentView: string;
@@ -194,7 +195,7 @@ export default function Sidebar({
                 <div className="w-10 h-10 rounded-lg shrink-0 flex items-center justify-center overflow-hidden border border-[#303030] bg-[#191919]">
                   {playlist.coverUrl || playlist.tracks[0]?.coverUrl ? (
                     <img
-                      src={playlist.coverUrl || playlist.tracks[0].coverUrl}
+                      src={getCrispCoverUrl(playlist.coverUrl || playlist.tracks[0]?.coverUrl, ECHO_COVERS.global)}
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"
                       alt={playlist.name}
@@ -234,7 +235,7 @@ export default function Sidebar({
                   >
                     <div className="relative w-9 h-9 rounded-lg overflow-hidden shrink-0 bg-[#191919]">
                       <img
-                        src={track.coverUrl || ECHO_COVERS.global}
+                        src={getCrispCoverUrl(track.coverUrl, ECHO_COVERS.global)}
                         alt={track.title}
                         referrerPolicy="no-referrer"
                         onError={(e) => {

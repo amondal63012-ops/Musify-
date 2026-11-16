@@ -111,7 +111,7 @@ function cleanText(str: string): string {
 
 function getHighResImage(url: string): string {
   if (!url) return '';
-  return url.replace('150x150.jpg', '500x500.jpg').replace('50x50.jpg', '500x500.jpg');
+  return url.replace(/([-_])(?:50x50|150x150)\.(jpg|jpeg|webp|png)(?=$|\?)/gi, '$1500x500.$2');
 }
 
 function decryptSaavnMediaUrl(encryptedMediaUrl?: string): string | null {
@@ -620,7 +620,9 @@ function mapSoundCloudTrackMeta(
   if (!trans?.url) return null;
 
   const rawCover = t.artwork_url || t.user?.avatar_url || '';
-  const coverUrl = rawCover ? rawCover.replace('-large', '-t500x500').replace('-badge', '-t500x500') : DEFAULT_COVER;
+  const coverUrl = rawCover
+    ? rawCover.replace(/-(?:large|badge|small|tiny|mini|crop|t67x67|t120x120|t200x200|t300x300)(?=\.[a-z0-9]+(?:$|\?))/i, '-t500x500')
+    : DEFAULT_COVER;
   return {
     id: 'sc_' + t.id,
     title: cleanT,
@@ -676,7 +678,7 @@ async function searchAudiusTracks(query: string, strictArtistTarget: string = ''
       artist: cleanArt,
       album: 'Official Audius Master',
       label: cleanArt,
-      coverUrl: t.artwork?.['480x480'] || t.artwork?.['1000x1000'] || DEFAULT_COVER,
+      coverUrl: t.artwork?.['1000x1000'] || t.artwork?.['480x480'] || DEFAULT_COVER,
       streamUrl,
       previewUrl: streamUrl,
       duration: durationMs,
@@ -904,7 +906,11 @@ async function searchYouTubeMusicMetadata(query: string): Promise<any[]> {
       rawTitle,
       artist: artistName,
       album: albumName,
-      coverUrl: rawThumb ? rawThumb.replace(/=w\d+-h\d+[^&]*/, '=w600-h600-l90-rj') : '',
+      coverUrl: rawThumb
+        ? rawThumb
+            .replace(/=w\d+-h\d+[^&]*/, '=w600-h600-l90-rj')
+            .replace(/=s\d+[^&]*/, '=w600-h600-l90-rj')
+        : '',
       duration: 0,
       rank: Math.max(400000, 960000 - i * 35000),
     });
@@ -1460,7 +1466,7 @@ export async function directGetCharts(): Promise<any[]> {
       title: cleanText(t.title),
       artist: cleanText(t.user?.name || 'Verified Artist'),
       album: 'Official Audius Master',
-      coverUrl: t.artwork?.['480x480'] || DEFAULT_COVER,
+      coverUrl: t.artwork?.['1000x1000'] || t.artwork?.['480x480'] || DEFAULT_COVER,
       streamUrl: `https://api.audius.co/v1/tracks/${t.id}/stream?app_name=AuraMusic`,
       previewUrl: `https://api.audius.co/v1/tracks/${t.id}/stream?app_name=AuraMusic`,
       duration: (Number(t.duration) || 0) * 1000,

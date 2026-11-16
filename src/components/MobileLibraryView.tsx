@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Artist, Playlist, SavedAlbum, Track } from '../types';
 import { ECHO_COVERS } from './echoCovers';
+import { getCrispCoverUrl } from '../lib/coverUrl';
 import SearchBar from './design/SearchBar';
 import SectionHeader from './design/SectionHeader';
 import PlaylistCard from './design/PlaylistCard';
@@ -306,7 +307,7 @@ export default function MobileLibraryView({
           ) : (
             <div className="space-y-2">
               {filteredPlaylists.map((playlist) => {
-                const cover = playlist.coverUrl || playlist.tracks[0]?.coverUrl;
+                const cover = getCrispCoverUrl(playlist.coverUrl || playlist.tracks[0]?.coverUrl);
                 return (
                   <div
                     key={playlist.id}
@@ -439,7 +440,7 @@ export default function MobileLibraryView({
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="relative w-11 h-11 rounded-lg overflow-hidden shrink-0 bg-[#111111]">
                         <img
-                          src={track.coverUrl || ECHO_COVERS.global}
+                          src={getCrispCoverUrl(track.coverUrl, ECHO_COVERS.global)}
                           alt={track.title}
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-cover"

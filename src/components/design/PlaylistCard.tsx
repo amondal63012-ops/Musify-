@@ -1,6 +1,7 @@
 import React from 'react';
 import { Play, Heart, Music } from 'lucide-react';
 import { Playlist } from '../../types';
+import { getCrispCoverUrl } from '../../lib/coverUrl';
 
 interface PlaylistCardProps {
   playlist: Playlist;
@@ -9,7 +10,7 @@ interface PlaylistCardProps {
 }
 
 export default function PlaylistCard({ playlist, onClick, className = '' }: PlaylistCardProps) {
-  const coverSrc = playlist.coverUrl || playlist.tracks[0]?.coverUrl;
+  const coverSrc = getCrispCoverUrl(playlist.coverUrl || playlist.tracks[0]?.coverUrl);
   const trackCount = playlist.tracks.length;
 
   return (

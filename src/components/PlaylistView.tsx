@@ -18,6 +18,7 @@ import { Track, Playlist } from '../types';
 import { canSaveTrackOffline } from '../lib/offlineVault';
 import { searchTracks, getViralSongs } from '../api';
 import { ECHO_COVERS } from './echoCovers';
+import { getCrispCoverUrl } from '../lib/coverUrl';
 import SongRow from './design/SongRow';
 import SearchBar from './design/SearchBar';
 
@@ -61,7 +62,7 @@ export default function PlaylistView({
 
   const totalDuration = playlist.tracks.reduce((acc, t) => acc + t.duration, 0);
   const isPlaylistPlaying = isPlaying && playlist.tracks.some((t) => t.id === currentTrack?.id);
-  const heroArt = playlist.coverUrl || playlist.tracks[0]?.coverUrl || ECHO_COVERS.glasswave;
+  const heroArt = getCrispCoverUrl(playlist.coverUrl || playlist.tracks[0]?.coverUrl, ECHO_COVERS.glasswave);
   const playlistTrackIds = new Set(playlist.tracks.map((t) => t.id));
 
   const savedOfflineCount = playlist.tracks.filter((t) => offlineIds?.has(t.id)).length;
@@ -136,7 +137,7 @@ export default function PlaylistView({
           <div className="w-52 h-52 sm:w-56 sm:h-56 mx-auto md:mx-0 rounded-[4px] shadow-[0_24px_60px_rgba(0,0,0,0.85)] overflow-hidden bg-[#191919] flex items-center justify-center">
             {playlist.coverUrl || playlist.tracks[0]?.coverUrl ? (
               <img
-                src={playlist.coverUrl || playlist.tracks[0].coverUrl}
+                src={getCrispCoverUrl(playlist.coverUrl || playlist.tracks[0]?.coverUrl, ECHO_COVERS.glasswave)}
                 referrerPolicy="no-referrer"
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = ECHO_COVERS.glasswave;
@@ -400,7 +401,7 @@ export default function PlaylistView({
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <img
-                          src={track.coverUrl || ECHO_COVERS.global}
+                          src={getCrispCoverUrl(track.coverUrl, ECHO_COVERS.global)}
                           alt={track.title}
                           referrerPolicy="no-referrer"
                           className="w-10 h-10 rounded-[2px] object-cover shrink-0"
@@ -455,7 +456,7 @@ export default function PlaylistView({
 
             <div className="flex flex-col items-center text-center mb-6">
               <img
-                src={sheetTrack.coverUrl || ECHO_COVERS.global}
+                src={getCrispCoverUrl(sheetTrack.coverUrl, ECHO_COVERS.global)}
                 alt={sheetTrack.title}
                 referrerPolicy="no-referrer"
                 onError={(e) => {

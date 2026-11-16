@@ -2,6 +2,7 @@ import React from 'react';
 import { Play } from 'lucide-react';
 import { Artist } from '../../types';
 import { ECHO_COVERS } from '../echoCovers';
+import { getCrispCoverUrl } from '../../lib/coverUrl';
 
 interface ArtistCardProps {
   artist: Artist;
@@ -31,7 +32,7 @@ export default function ArtistCard({
     >
       <div className="relative mb-2 w-full aspect-square">
         <img
-          src={artist.avatarUrl || ECHO_COVERS.indie}
+          src={getCrispCoverUrl(artist.avatarUrl, ECHO_COVERS.indie)}
           alt={artist.name}
           referrerPolicy="no-referrer"
           onError={(e) => {

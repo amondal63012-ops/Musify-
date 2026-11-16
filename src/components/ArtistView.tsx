@@ -14,6 +14,7 @@ import { Artist, Track, Playlist, SavedAlbum } from '../types';
 import { getArtistDetails, getArtists } from '../api';
 import { canSaveTrackOffline } from '../lib/offlineVault';
 import { ECHO_COVERS } from './echoCovers';
+import { getCrispCoverUrl } from '../lib/coverUrl';
 import SectionHeader from './design/SectionHeader';
 import SongRow from './design/SongRow';
 import AlbumCard from './design/AlbumCard';
@@ -154,7 +155,7 @@ export default function ArtistView({
       {/* Full-Bleed Full-Color Artist Banner */}
       <div className="relative h-72 sm:h-84 md:h-96 w-full overflow-hidden bg-[#111111]">
         <img
-          src={artist.bannerUrl || artist.avatarUrl || ECHO_COVERS.indie}
+          src={getCrispCoverUrl(artist.bannerUrl || artist.avatarUrl, ECHO_COVERS.indie)}
           alt={artist.name}
           referrerPolicy="no-referrer"
           onError={(e) => {
@@ -347,7 +348,7 @@ export default function ArtistView({
 
             <div className="flex flex-col items-center text-center mb-6">
               <img
-                src={sheetTrack.coverUrl || ECHO_COVERS.global}
+                src={getCrispCoverUrl(sheetTrack.coverUrl, ECHO_COVERS.global)}
                 alt={sheetTrack.title}
                 referrerPolicy="no-referrer"
                 onError={(e) => {
