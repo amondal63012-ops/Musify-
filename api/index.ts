@@ -2,6 +2,7 @@ import express from 'express';
 import CryptoJS from 'crypto-js';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+import { Innertube } from 'youtubei.js';
 
 dotenv.config();
 
@@ -2306,9 +2307,459 @@ app.get(['/api/charts', '/charts'], async (req, res) => {
   }
 });
 
-// Canvas video lookup disabled to avoid any YouTube embeds; mobile screen renders ambient canvas backdrop
-app.get(['/api/canvas', '/canvas'], (req, res) => {
-  res.json({ videoId: null, thumbnail: null });
+// Two-tier exact-song background video canvas resolver (Tier 1: Direct Apple Music Video .m4v, Tier 2: Official YouTube Music Video embed)
+interface CanvasResolution {
+  videoUrl: string | null;
+  videoId: string | null;
+  provider: 'apple-mv' | 'youtube-canvas' | null;
+  title: string | null;
+  artist: string | null;
+  thumbnail: string | null;
+}
+
+const CANVAS_CACHE_MAX = 500;
+const canvasResolutionCache = new Map<string, { data: CanvasResolution; exp: number }>();
+let ytCanvasClientPromise: Promise<Innertube | null> | null = null;
+
+function getYtCanvasClient(): Promise<Innertube | null> {
+  if (!ytCanvasClientPromise) {
+    ytCanvasClientPromise = Innertube.create({
+      lang: 'en',
+      location: 'US',
+      generate_session_locally: true,
+    }).catch(() => {
+      ytCanvasClientPromise = null;
+      return null;
+    });
+  }
+  return ytCanvasClientPromise;
+}
+
+function normalizeCanvasTitle(raw: string): string {
+  let cleaned = foldDiacritics(cleanText(raw || '')).toLowerCase();
+  // Strip structured official/credit/movie annotations while preserving real song modifiers like remix/part 2 if not stripped later
+  cleaned = cleaned
+    .replace(/\((?:feat\.?|ft\.?|featuring|with|from|official|music\s+video|video\s+song|full\s+video|full\s+song|hd|4k|8k|uhd|explicit|clean|single\s+version|album\s+version|radio\s+edit|visualizer|motion\s+picture|remastered(?:\s+\d{4})?)[^)]*\)/gi, ' ')
+    .replace(/\[(?:feat\.?|ft\.?|featuring|with|from|official|music\s+video|video\s+song|full\s+video|full\s+song|hd|4k|8k|uhd|explicit|clean|visualizer|remastered(?:\s+\d{4})?)[^\]]*\]/gi, ' ')
+    .replace(/\b(?:feat\.?|ft\.?|featuring)\b.*$/i, ' ')
+    .replace(/\s*-\s*from\s+["'“”]?[^"'“”]+["'“”]?\s*$/i, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+  return cleaned;
+}
+
+function stripCanvasExtraParens(raw: string): string {
+  return foldDiacritics(cleanText(raw || ''))
+    .toLowerCase()
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+    .replace(/\b(?:feat\.?|ft\.?|featuring)\b.*$/i, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+function hasDisallowedCanvasVariant(candidateRaw: string, targetRaw: string): boolean {
+  const candLow = foldDiacritics(cleanText(candidateRaw || '')).toLowerCase();
+  const targLow = foldDiacritics(cleanText(targetRaw || '')).toLowerCase();
+
+  const hardRejectTerms = [
+    'karaoke', 'reaction', 'reacts to', 'tutorial', 'lesson', 'how to play',
+    'piano version', 'piano cover', 'guitar cover', 'violin cover', 'drum cover', 'flute cover',
+    'slowed', 'reverb', 'reverbed', 'nightcore', '8d audio', '9d audio', '3d audio', '16d audio',
+    'bass boosted', 'bassboosted', 'mashup', 'mash up', 'megamix', 'jukebox',
+    'type beat', 'free beat', 'backing track', 'soundalike', 'tribute', 'kidz bop',
+    'teaser', 'trailer', 'behind the scenes', 'making of', 'interview',
+    'whatsapp status', 'status video', 'ringtone', '1 hour', '10 hour', 'full album',
+    'sped up', 'speed up', 'speedup', 'chipmunk', 'parody',
+    'lyric video', 'lyrics video', 'official audio', 'audio only', 'full audio', 'lyrics', 'with lyrics'
+  ];
+  for (const term of hardRejectTerms) {
+    if (candLow.includes(term) && !targLow.includes(term)) {
+      return true;
+    }
+  }
+
+  const conditionalVariants = ['remix', 'live', 'acoustic', 'unplugged', 'instrumental', 'cover', 'lofi', 'lo-fi', 'phonk', 'sped up', 'karaoke'];
+  for (const variant of conditionalVariants) {
+    const rx = new RegExp(`\\b${escapeRegExp(variant)}\\b`, 'i');
+    if (rx.test(candLow) && !rx.test(targLow)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function detectCanvasStorefronts(title: string, artist: string): string[] {
+  const combined = `${title} ${artist}`;
+  if (/[\u0900-\u097f\u0a00-\u0a7f\u0b80-\u0bff\u0c00-\u0c7f\u0c80-\u0cff\u0d00-\u0d7f]/.test(combined)) {
+    return ['in', 'us'];
+  }
+  if (/[\u3040-\u30ff\u4e00-\u9faf]/.test(combined)) {
+    return ['jp', 'us'];
+  }
+  if (/[\uac00-\ud7af]/.test(combined)) {
+    return ['kr', 'us'];
+  }
+  const low = combined.toLowerCase();
+  const indianCues = [
+    'arijit', 'aujla', 'diljit', 'dosanjh', 'ap dhillon', 'shubh', 'sidhu', 'moose wala',
+    'badshah', 'honey singh', 'neha kakkar', 'shreya ghoshal', 'atiful', 'atif aslam',
+    'pritam', 'anirudh', 'ar rahman', 'sonu nigam', 'sunidhi', 'jubin', 'darshan raval',
+    'king', 'divine', 'hanumankind', 'tum hi', 'kesariya', 'apna bana le', 'tauba'
+  ];
+  if (indianCues.some((cue) => low.includes(cue))) {
+    return ['in', 'us', 'gb'];
+  }
+  return ['us', 'gb', 'in'];
+}
+
+function candidateMatchesTargetArtists(
+  candArtist: string,
+  candTitle: string,
+  targetArtists: string[],
+  channelAuthor: string = ''
+): { matched: boolean; matchCount: number; exactChannelOrArtist: boolean } {
+  let matchCount = 0;
+  let exactChannelOrArtist = false;
+
+  for (const ta of targetArtists) {
+    const normTa = foldDiacritics(cleanText(ta)).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const compactTa = normTa.replace(/\s+/g, '');
+    if (!compactTa) continue;
+
+    const artistMatch = artistMatchesTarget(candArtist, ta, candTitle, true);
+    const authorMatch = channelAuthor ? artistMatchesTarget(channelAuthor, ta, '', false) : false;
+    const authorCompact = channelAuthor
+      ? foldDiacritics(cleanText(channelAuthor)).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+      : '';
+    const authorVevoOrOfficial = Boolean(
+      authorCompact &&
+      (authorCompact === `${compactTa}vevo` ||
+        authorCompact === `official${compactTa}` ||
+        authorCompact === `${compactTa}official` ||
+        authorCompact === `${compactTa}music`)
+    );
+
+    if (artistMatch || authorMatch || authorVevoOrOfficial) {
+      matchCount += 1;
+      if (artistMatch || authorMatch || authorVevoOrOfficial) {
+        exactChannelOrArtist = true;
+      }
+    }
+  }
+
+  return {
+    matched: matchCount > 0,
+    matchCount,
+    exactChannelOrArtist,
+  };
+}
+
+async function resolveItunesMusicVideoCanvas(
+  cleanTitle: string,
+  rawTitle: string,
+  targetArtist: string,
+  targetArtists: string[]
+): Promise<CanvasResolution | null> {
+  const normTarget = normalizeCanvasTitle(cleanTitle) || stripCanvasExtraParens(rawTitle);
+  const normTargetStrict = stripCanvasExtraParens(cleanTitle) || normTarget;
+  if (!normTarget) return null;
+
+  const primaryArtist = targetArtists[0] || targetArtist;
+  const queryTerm = `${cleanTitle} ${primaryArtist}`.trim();
+  const storefronts = detectCanvasStorefronts(cleanTitle, targetArtist);
+
+  // Query top two storefronts concurrently for low latency
+  const queryStorefronts = storefronts.slice(0, 2);
+  const responses = await Promise.all(
+    queryStorefronts.map(async (country) => {
+      try {
+        const url = `https://itunes.apple.com/search?term=${encodeURIComponent(queryTerm)}&media=musicVideo&entity=musicVideo&country=${country}&limit=12`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data?.results) ? data.results : [];
+      } catch {
+        return [];
+      }
+    })
+  );
+
+  const candidates = responses.flat();
+  let bestCandidate: { item: any; score: number } | null = null;
+
+  for (const item of candidates) {
+    const previewUrl = typeof item?.previewUrl === 'string' ? item.previewUrl.trim() : '';
+    const candTitle = cleanText(item?.trackName || '');
+    const candArtist = cleanText(item?.artistName || '');
+    if (!previewUrl || !candTitle || !candArtist) continue;
+    if (!/^https?:\/\/.+/i.test(previewUrl)) continue;
+    if (hasDisallowedCanvasVariant(candTitle, rawTitle)) continue;
+
+    const normCand = normalizeCanvasTitle(candTitle);
+    const normCandStrict = stripCanvasExtraParens(candTitle);
+    const exactTitleMatch =
+      normCand === normTarget ||
+      normCand === normTargetStrict ||
+      normCandStrict === normTargetStrict ||
+      normCandStrict === normTarget;
+
+    if (!exactTitleMatch) continue;
+
+    const artistCheck = candidateMatchesTargetArtists(candArtist, candTitle, targetArtists);
+    if (!artistCheck.matched) continue;
+
+    let score = 100 + artistCheck.matchCount * 20;
+    if (normCandStrict === normTargetStrict) score += 15;
+    if (previewUrl.startsWith('https://')) score += 5;
+
+    if (!bestCandidate || score > bestCandidate.score) {
+      bestCandidate = { item, score };
+    }
+  }
+
+  if (!bestCandidate) return null;
+  const chosen = bestCandidate.item;
+  const secureVideoUrl = chosen.previewUrl.replace(/^http:\/\//i, 'https://');
+  const thumb = typeof chosen.artworkUrl100 === 'string'
+    ? chosen.artworkUrl100.replace(/100x100bb/i, '600x600bb')
+    : null;
+
+  return {
+    videoUrl: secureVideoUrl,
+    videoId: null,
+    provider: 'apple-mv',
+    title: cleanText(chosen.trackName || cleanTitle),
+    artist: cleanText(chosen.artistName || targetArtist),
+    thumbnail: thumb,
+  };
+}
+
+function youtubeTitleExactlyMatchesSong(
+  rawVideoTitle: string,
+  normTarget: string,
+  normTargetStrict: string,
+  targetArtists: string[]
+): { matched: boolean; exactSegment: boolean } {
+  const cleanedRaw = foldDiacritics(cleanText(rawVideoTitle || ''))
+    .toLowerCase()
+    .replace(/\([^)]*(?:official|music\s*video|video\s*song|full\s*video|full\s*song|m\/v|mv|visualizer|4k|8k|uhd|hd|remastered|feat\.?|ft\.?|from)[^)]*\)/gi, ' ')
+    .replace(/\[[^\]]*(?:official|music\s*video|video\s*song|full\s*video|full\s*song|m\/v|mv|visualizer|4k|8k|uhd|hd|remastered|feat\.?|ft\.?|from)[^\]]*\]/gi, ' ');
+
+  // Split by major delimiters found in official YouTube music video titles
+  const segments = cleanedRaw
+    .split(/[|\n•/]|\s+[-–—:]\s+/)
+    .map((seg) =>
+      seg
+        .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+        .replace(/\b(?:feat\.?|ft\.?|featuring)\b.*$/i, ' ')
+        .replace(/\b(?:official\s+music\s+video|official\s+video|music\s+video|video\s+song|full\s+video\s+song|full\s+video|full\s+song|m\/v|visualizer|8k|4k|uhd|hd)\b/gi, ' ')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .trim()
+    )
+    .filter(Boolean);
+
+  for (const seg of segments) {
+    if (seg === normTarget || seg === normTargetStrict) {
+      return { matched: true, exactSegment: true };
+    }
+    for (const ta of targetArtists) {
+      const taNorm = foldDiacritics(cleanText(ta)).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      if (!taNorm) continue;
+      if (seg === `${taNorm} ${normTarget}` || seg === `${normTarget} ${taNorm}` || seg === `${taNorm} ${normTargetStrict}`) {
+        return { matched: true, exactSegment: true };
+      }
+    }
+  }
+
+  // Fallback for quoted titles like `"Tum Hi Ho" Aashiqui 2`
+  const quotedMatches = [...rawVideoTitle.matchAll(/["'“”]([^"'“”]+)["'“”]/g)];
+  for (const m of quotedMatches) {
+    const qNorm = normalizeCanvasTitle(m[1] || '');
+    if (qNorm && (qNorm === normTarget || qNorm === normTargetStrict)) {
+      return { matched: true, exactSegment: true };
+    }
+  }
+
+  // Allow non-dash prefix only when no mismatched song words precede target and suffix is known video/album metadata
+  if (segments.length > 0) {
+    const firstSeg = segments[0];
+    if (firstSeg.startsWith(`${normTarget} `) && /\b(?:official|video|song|mv|visualizer|full|aashiqui)\b/i.test(rawVideoTitle)) {
+      return { matched: true, exactSegment: false };
+    }
+  }
+
+  return { matched: false, exactSegment: false };
+}
+
+async function isYoutubeOembedAvailable(videoId: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`,
+      { signal: AbortSignal.timeout(2500) }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveYoutubeCanvas(
+  cleanTitle: string,
+  rawTitle: string,
+  targetArtist: string,
+  targetArtists: string[]
+): Promise<CanvasResolution | null> {
+  const normTarget = normalizeCanvasTitle(cleanTitle) || stripCanvasExtraParens(rawTitle);
+  const normTargetStrict = stripCanvasExtraParens(cleanTitle) || normTarget;
+  if (!normTarget) return null;
+
+  const yt = await getYtCanvasClient();
+  if (!yt) return null;
+
+  const primaryArtist = targetArtists[0] || targetArtist;
+  const searchQuery = `${cleanTitle} ${primaryArtist} official music video`.trim();
+
+  let searchResult: any = null;
+  try {
+    searchResult = await Promise.race([
+      yt.search(searchQuery, { type: 'video' }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('yt-search-timeout')), 4500)),
+    ]);
+  } catch {
+    return null;
+  }
+
+  const items: any[] = Array.isArray(searchResult?.videos)
+    ? searchResult.videos
+    : Array.isArray(searchResult?.results)
+      ? searchResult.results
+      : [];
+
+  const scoredCandidates: Array<{ videoId: string; title: string; author: string; score: number; thumb: string | null }> = [];
+
+  for (const item of items.slice(0, 14)) {
+    const videoId = item?.id || item?.video_id;
+    const rawVideoTitle = cleanText(item?.title?.text || (typeof item?.title === 'string' ? item.title : '') || '');
+    const authorName = cleanText(item?.author?.name || '');
+    const durationSec = Number(item?.duration?.seconds || 0);
+
+    if (!videoId || typeof videoId !== 'string' || !rawVideoTitle) continue;
+    if (!authorName || /\s-\s*topic$/i.test(authorName)) continue;
+    if (durationSec > 0 && (durationSec < 45 || durationSec > 540)) continue;
+    if (hasDisallowedCanvasVariant(rawVideoTitle, rawTitle) || hasDisallowedCanvasVariant(authorName, targetArtist)) continue;
+
+    const titleCheck = youtubeTitleExactlyMatchesSong(rawVideoTitle, normTarget, normTargetStrict, targetArtists);
+    if (!titleCheck.matched) continue;
+
+    const candFullNorm = foldDiacritics(rawVideoTitle).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const titleCreditsTargetArtist = targetArtists.some((ta) => {
+      const taNorm = foldDiacritics(cleanText(ta)).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      return Boolean(taNorm && candFullNorm.includes(taNorm));
+    });
+
+    // Check YouTube channel author strictly against target artists / Vevo / Official artist channels
+    const channelArtistCheck = candidateMatchesTargetArtists(authorName, '', targetArtists, authorName);
+    const authorIsPublisher = isMajorPublisherLabel(authorName);
+    const isOfficialArtistChannel = Array.isArray(item?.author?.badges) &&
+      item.author.badges.some((b: any) =>
+        b?.tooltip === 'Official Artist Channel' || b?.style === 'BADGE_STYLE_TYPE_VERIFIED_ARTIST'
+      );
+
+    // Strictly require channel to be the artist (or Official Artist Channel / Vevo) OR an official major publisher label crediting the artist
+    if (!channelArtistCheck.exactChannelOrArtist && !(authorIsPublisher && titleCreditsTargetArtist)) {
+      continue;
+    }
+
+    let score = titleCheck.exactSegment ? 60 : 25;
+    if (channelArtistCheck.exactChannelOrArtist || isOfficialArtistChannel) score += 60;
+    else if (authorIsPublisher && titleCreditsTargetArtist) score += 50;
+    if (titleCreditsTargetArtist) score += 15;
+
+    const rawLow = rawVideoTitle.toLowerCase();
+    if (/\bofficial\s+(?:music\s+)?video\b|\bm\/v\b/i.test(rawLow)) score += 25;
+    else if (/\bvisualizer\b|\bmusic\s+video\b|\bfull\s+song\b|\bfull\s+video\b/i.test(rawLow)) score += 15;
+
+    const thumb =
+      Array.isArray(item?.thumbnails) && item.thumbnails[0]?.url
+        ? item.thumbnails[0].url
+        : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+    scoredCandidates.push({ videoId, title: rawVideoTitle, author: authorName || targetArtist, score, thumb });
+  }
+
+  scoredCandidates.sort((a, b) => b.score - a.score);
+
+  for (const cand of scoredCandidates.slice(0, 3)) {
+    const embeddable = await isYoutubeOembedAvailable(cand.videoId);
+    if (embeddable) {
+      return {
+        videoUrl: null,
+        videoId: cand.videoId,
+        provider: 'youtube-canvas',
+        title: cand.title,
+        artist: cand.author,
+        thumbnail: cand.thumb,
+      };
+    }
+  }
+
+  return null;
+}
+
+app.get(['/api/canvas', '/canvas'], async (req, res) => {
+  const rawTitle = cleanText(String(req.query.title || ''));
+  const rawArtist = cleanText(String(req.query.artist || ''));
+
+  if (!rawTitle) {
+    res.json({ videoUrl: null, videoId: null, provider: null, title: null, artist: null, thumbnail: null });
+    return;
+  }
+
+  const targetArtists = splitArtistEntities(rawArtist);
+  const primaryArtist = targetArtists[0] || rawArtist;
+  const cleanTitle = cleanSongTitle(rawTitle, primaryArtist) || rawTitle;
+
+  const cacheKey = `${normalizeCanvasTitle(cleanTitle)}:::${foldDiacritics(primaryArtist).toLowerCase().trim()}`;
+  const now = Date.now();
+  const cached = canvasResolutionCache.get(cacheKey);
+  if (cached && cached.exp > now) {
+    res.json(cached.data);
+    return;
+  }
+
+  try {
+    // Tier 1: Direct watermark-free Apple MusicVideo .m4v stream
+    let resolved = await resolveItunesMusicVideoCanvas(cleanTitle, rawTitle, rawArtist, targetArtists);
+
+    // Tier 2: Official YouTube Music Video embed fallback when iTunes MV is absent
+    if (!resolved) {
+      resolved = await resolveYoutubeCanvas(cleanTitle, rawTitle, rawArtist, targetArtists);
+    }
+
+    const result: CanvasResolution = resolved || {
+      videoUrl: null,
+      videoId: null,
+      provider: null,
+      title: null,
+      artist: null,
+      thumbnail: null,
+    };
+
+    if (canvasResolutionCache.size >= CANVAS_CACHE_MAX) {
+      const oldestKey = canvasResolutionCache.keys().next().value;
+      if (oldestKey) canvasResolutionCache.delete(oldestKey);
+    }
+
+    canvasResolutionCache.set(cacheKey, {
+      data: result,
+      exp: now + (resolved ? 1000 * 60 * 60 * 6 : 1000 * 60 * 10),
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Canvas resolution error:', err);
+    res.json({ videoUrl: null, videoId: null, provider: null, title: null, artist: null, thumbnail: null });
+  }
 });
 
 // Authentic 100% Real Artist Profiles with verified CDN photographs

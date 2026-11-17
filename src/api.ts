@@ -63,15 +63,115 @@ export const getCharts = async (): Promise<any[]> => {
   }
 };
 
-export const getCanvasVideo = async (title: string, artist: string): Promise<string | null> => {
+export interface CanvasMedia {
+  videoUrl: string | null;
+  videoId: string | null;
+  provider?: 'apple-mv' | 'youtube-canvas' | null;
+  title?: string | null;
+  artist?: string | null;
+  thumbnail?: string | null;
+}
+
+const canvasClientCache = new Map<string, CanvasMedia | null>();
+
+function normalizeCanvasClientText(str: string): string {
+  return (str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\((?:feat\.?|ft\.?|featuring|with|from|official|music\s+video|video\s+song|hd|4k|explicit|clean|single\s+version|album\s+version|radio\s+edit|visualizer)[^)]*\)/gi, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\b(?:feat\.?|ft\.?|featuring)\b.*$/i, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+async function directItunesCanvasFallback(title: string, artist: string): Promise<CanvasMedia | null> {
+  const normTarget = normalizeCanvasClientText(title);
+  const artistEntities = (artist || '')
+    .split(/[,&/+×]|(?:\s+(?:feat\.?|ft\.?|featuring|with|vs\.?|x)\s+)/i)
+    .map((s) => normalizeCanvasClientText(s))
+    .filter(Boolean);
+  if (!normTarget || artistEntities.length === 0) return null;
+
   try {
-    const data = await tryFetchBackendJson<{ videoId?: string | null }>(
-      `/api/canvas?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`
+    const cleanTitle = title.replace(/\([^)]*\)|\[[^\]]*\]/g, '').trim() || title;
+    const term = `${cleanTitle} ${artistEntities[0]}`.trim();
+    const res = await fetch(
+      `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=musicVideo&entity=musicVideo&limit=10`,
+      { signal: AbortSignal.timeout(4000) }
     );
-    return data?.videoId || null;
+    if (!res.ok) return null;
+    const data = await res.json();
+    const results = Array.isArray(data?.results) ? data.results : [];
+    for (const item of results) {
+      const previewUrl = typeof item?.previewUrl === 'string' ? item.previewUrl.trim() : '';
+      if (!previewUrl || !/^https?:\/\//i.test(previewUrl)) continue;
+      const candTitleNorm = normalizeCanvasClientText(item.trackName || '');
+      const candArtistNorm = normalizeCanvasClientText(item.artistName || '');
+      if (candTitleNorm !== normTarget) continue;
+      const candArtists = (item.artistName || '')
+        .split(/[,&/+×]|(?:\s+(?:feat\.?|ft\.?|featuring|with|vs\.?|x)\s+)/i)
+        .map((s: string) => normalizeCanvasClientText(s))
+        .filter(Boolean);
+      const artistMatched = artistEntities.some(
+        (ta) => candArtistNorm === ta || candArtists.includes(ta)
+      );
+      if (!artistMatched) continue;
+      return {
+        videoUrl: previewUrl.replace(/^http:\/\//i, 'https://'),
+        videoId: null,
+        provider: 'apple-mv',
+        title: item.trackName || title,
+        artist: item.artistName || artist,
+        thumbnail: typeof item.artworkUrl100 === 'string' ? item.artworkUrl100.replace(/100x100bb/i, '600x600bb') : null,
+      };
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+export const getCanvasMedia = async (title: string, artist: string): Promise<CanvasMedia | null> => {
+  if (!title) return null;
+  const cacheKey = `${normalizeCanvasClientText(title)}:::${normalizeCanvasClientText(artist)}`;
+  if (canvasClientCache.has(cacheKey)) {
+    return canvasClientCache.get(cacheKey) ?? null;
+  }
+
+  try {
+    const data = await tryFetchBackendJson<CanvasMedia>(
+      `/api/canvas?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist || '')}`
+    );
+    let resolved: CanvasMedia | null = null;
+    if (data && (data.videoUrl || data.videoId)) {
+      resolved = {
+        videoUrl: data.videoUrl || null,
+        videoId: data.videoId || null,
+        provider: data.provider || (data.videoUrl ? 'apple-mv' : 'youtube-canvas'),
+        title: data.title || null,
+        artist: data.artist || null,
+        thumbnail: data.thumbnail || null,
+      };
+    } else if (data === null) {
+      resolved = await directItunesCanvasFallback(title, artist);
+    }
+
+    if (canvasClientCache.size > 150) {
+      const oldestKey = canvasClientCache.keys().next().value;
+      if (oldestKey) canvasClientCache.delete(oldestKey);
+    }
+    canvasClientCache.set(cacheKey, resolved);
+    return resolved;
+  } catch {
+    return null;
+  }
+};
+
+export const getCanvasVideo = async (title: string, artist: string): Promise<string | null> => {
+  const media = await getCanvasMedia(title, artist);
+  return media?.videoId || media?.videoUrl || null;
 };
 
 export const getViralSongs = async (): Promise<any[]> => {

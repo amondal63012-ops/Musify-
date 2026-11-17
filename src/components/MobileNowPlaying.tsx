@@ -29,6 +29,7 @@ import { Track, RepeatMode } from '../types';
 import { tryFetchBackendJson } from '../lib/apiConfig';
 import { directFetchLyrics } from '../lib/directMusicProvider';
 import { canSaveTrackOffline } from '../lib/offlineVault';
+import { getCanvasMedia, CanvasMedia } from '../api';
 import QueuePanel from './design/QueuePanel';
 import { ECHO_COVERS } from './echoCovers';
 import { getCrispCoverUrl } from '../lib/coverUrl';
@@ -123,11 +124,16 @@ export default function MobileNowPlaying({
   const [isTimerModalOpen, setIsTimerModalOpen] = useState(false);
   const [activeTimerMinutes, setActiveTimerMinutes] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [canvasMedia, setCanvasMedia] = useState<CanvasMedia | null>(null);
+  const [isVideoCanvasReady, setIsVideoCanvasReady] = useState(false);
   const timerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const touchStartYRef = useRef<number | null>(null);
   const topLightRef = useRef<HTMLDivElement>(null);
   const topRayRef = useRef<HTMLDivElement>(null);
+  const canvasVideoRef = useRef<HTMLVideoElement>(null);
+  const canvasIframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPlayingRef = useRef(isPlaying);
   const lastSyncRef = useRef<{ songSec: number; wallMs: number }>({
     songSec: propProgress ?? 0,
@@ -237,6 +243,70 @@ export default function MobileNowPlaying({
       setDuration(currentTrack.duration / 1000);
     }
   }, [currentTrack, propDuration]);
+
+  // Fetch exact-song muted background video canvas on track change
+  useEffect(() => {
+    if (iframeFadeTimerRef.current) {
+      clearTimeout(iframeFadeTimerRef.current);
+      iframeFadeTimerRef.current = null;
+    }
+    setCanvasMedia(null);
+    setIsVideoCanvasReady(false);
+
+    if (!currentTrack || currentTrack.source === 'local') return;
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      return;
+    }
+
+    let cancelled = false;
+    getCanvasMedia(currentTrack.title, currentTrack.artist)
+      .then((media) => {
+        if (!cancelled && media && (media.videoUrl || media.videoId)) {
+          setCanvasMedia(media);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (iframeFadeTimerRef.current) {
+        clearTimeout(iframeFadeTimerRef.current);
+        iframeFadeTimerRef.current = null;
+      }
+    };
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.source]);
+
+  // Sync muted background video canvas play/pause with audio state
+  useEffect(() => {
+    const vid = canvasVideoRef.current;
+    if (vid) {
+      vid.muted = true;
+      if (isPlaying) {
+        const playPromise = vid.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(() => {});
+        }
+      } else {
+        vid.pause();
+      }
+    }
+
+    const iframe = canvasIframeRef.current;
+    if (iframe?.contentWindow && canvasMedia?.videoId) {
+      try {
+        iframe.contentWindow.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func: isPlaying ? 'playVideo' : 'pauseVideo',
+            args: [],
+          }),
+          '*'
+        );
+      } catch {
+        // Ignore cross-origin postMessage readiness timing
+      }
+    }
+  }, [isPlaying, canvasMedia?.videoUrl, canvasMedia?.videoId]);
 
   useEffect(() => {
     if (!currentTrack) return;
@@ -419,6 +489,9 @@ export default function MobileNowPlaying({
 
   const crispCover = getCrispCoverUrl(currentTrack.coverUrl, ECHO_COVERS.global);
   const backdropCover = crispCover;
+  const hasActiveVideoCanvas = Boolean(canvasMedia && (canvasMedia.videoUrl || canvasMedia.videoId) && isVideoCanvasReady);
+  const isLyricsView = activeTab === 'lyrics';
+  const isQueueView = activeTab === 'queue';
 
   return (
     <div
@@ -476,10 +549,108 @@ export default function MobileNowPlaying({
           aria-hidden="true"
           className="absolute inset-0 bg-black/35 backdrop-blur-3xl"
         />
+
+        {/* Exact-Song Muted Looping Background Video Canvas */}
         <div
           aria-hidden="true"
-          className="absolute inset-0 bg-gradient-to-b from-white/[0.06] via-black/22 to-black/68"
+          className={`absolute inset-0 overflow-hidden pointer-events-none transition-all duration-500 ease-out ${
+            isLyricsView
+              ? 'blur-3xl scale-110 opacity-75'
+              : isQueueView
+                ? 'blur-2xl scale-105 opacity-45'
+                : 'blur-0 scale-100 opacity-100'
+          }`}
+        >
+          {canvasMedia?.videoUrl ? (
+            <video
+              ref={canvasVideoRef}
+              key={`mv-${currentTrack.id}-${canvasMedia.videoUrl}`}
+              src={canvasMedia.videoUrl}
+              autoPlay={isPlaying}
+              loop
+              muted
+              playsInline
+              preload="auto"
+              aria-hidden="true"
+              onCanPlay={() => setIsVideoCanvasReady(true)}
+              onPlaying={() => setIsVideoCanvasReady(true)}
+              onError={() => {
+                setIsVideoCanvasReady(false);
+                setCanvasMedia(null);
+              }}
+              className={`w-full h-full object-cover object-center scale-[1.06] pointer-events-none transition-opacity duration-700 ${
+                isVideoCanvasReady ? 'opacity-90' : 'opacity-0'
+              }`}
+            />
+          ) : canvasMedia?.videoId ? (
+            <iframe
+              ref={canvasIframeRef}
+              key={`yt-${currentTrack.id}-${canvasMedia.videoId}`}
+              src={`https://www.youtube-nocookie.com/embed/${canvasMedia.videoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${canvasMedia.videoId}&playsinline=1&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&enablejsapi=1`}
+              title=""
+              aria-hidden="true"
+              tabIndex={-1}
+              allow="autoplay; encrypted-media"
+              onLoad={() => {
+                if (iframeFadeTimerRef.current) clearTimeout(iframeFadeTimerRef.current);
+                iframeFadeTimerRef.current = setTimeout(() => {
+                  setIsVideoCanvasReady(true);
+                  if (!isPlayingRef.current && canvasIframeRef.current?.contentWindow) {
+                    try {
+                      canvasIframeRef.current.contentWindow.postMessage(
+                        JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }),
+                        '*'
+                      );
+                    } catch {
+                      // Ignore
+                    }
+                  }
+                }, 900);
+              }}
+              onError={() => {
+                setIsVideoCanvasReady(false);
+                setCanvasMedia(null);
+              }}
+              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[195vh] min-w-[115%] h-[125%] min-h-[115vw] border-0 pointer-events-none scale-[1.16] transition-opacity duration-700 ${
+                isVideoCanvasReady ? 'opacity-85' : 'opacity-0'
+              }`}
+            />
+          ) : null}
+        </div>
+
+        {/* Full-Blur Frosted Veil when Lyrics (or Queue) is active */}
+        <div
+          aria-hidden="true"
+          className={`absolute inset-0 bg-black/55 backdrop-blur-[56px] saturate-150 transition-opacity duration-500 ${
+            isLyricsView ? 'opacity-100' : isQueueView ? 'opacity-85' : 'opacity-0'
+          }`}
         />
+
+        {/* Downward Black Blur Mist + Bottom-Up Dark Gradient Vignette (Streaming Canvas Look) */}
+        <div
+          aria-hidden="true"
+          className={`absolute inset-x-0 bottom-0 h-[52vh] backdrop-blur-xl transition-opacity duration-500 ${
+            hasActiveVideoCanvas && !isLyricsView ? 'opacity-100' : 'opacity-0'
+          }`}
+          style={{
+            maskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 34%, black 70%, black 100%)',
+            WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 34%, black 70%, black 100%)',
+          }}
+        />
+        <div
+          aria-hidden="true"
+          className={`absolute inset-0 transition-all duration-500 ${
+            hasActiveVideoCanvas && !isLyricsView
+              ? 'bg-gradient-to-b from-black/45 via-black/15 via-40% to-[#050505]/95'
+              : 'bg-gradient-to-b from-white/[0.06] via-black/26 to-black/72'
+          }`}
+        />
+        {hasActiveVideoCanvas && !isLyricsView && (
+          <div
+            aria-hidden="true"
+            className="absolute inset-x-0 bottom-0 h-[44vh] bg-gradient-to-t from-black via-black/85 to-transparent"
+          />
+        )}
 
         {/* Beat-Synced Top White Light Gradient Spotlight */}
         <div
@@ -526,36 +697,62 @@ export default function MobileNowPlaying({
         </button>
       </div>
 
-      {/* SCREENSHOT 1 STAGE: Centered Full-Color Artwork Player */}
+      {/* SCREENSHOT 1 STAGE: Full-Bleed Video Canvas with Lower Compact Thumbnail OR Centered Artwork Fallback */}
       {activeTab === 'player' && (
-        <div className="relative z-10 flex-1 flex flex-col justify-evenly px-7 sm:px-10 max-w-lg w-full mx-auto min-h-0">
-          <div className="flex items-center justify-center py-2">
-            <div
-              className={`w-[76vw] max-w-[330px] sm:w-[320px] aspect-square rounded-2xl overflow-hidden shadow-[0_28px_72px_rgba(0,0,0,0.75)] ring-1 ring-white/15 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] bg-black/30 ${
-                isPlaying ? 'scale-100' : 'scale-[0.92]'
-              }`}
-            >
-              <img
-                src={crispCover}
-                alt={currentTrack.title}
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = ECHO_COVERS.global;
-                }}
-                className="w-full h-full object-cover"
-              />
+        <div
+          className={`relative z-10 flex-1 flex flex-col px-7 sm:px-10 max-w-lg w-full mx-auto min-h-0 transition-all duration-500 ${
+            hasActiveVideoCanvas ? 'justify-end pb-2' : 'justify-evenly'
+          }`}
+        >
+          {!hasActiveVideoCanvas && (
+            <div className="flex items-center justify-center py-2">
+              <div
+                className={`w-[76vw] max-w-[330px] sm:w-[320px] aspect-square rounded-2xl overflow-hidden shadow-[0_28px_72px_rgba(0,0,0,0.75)] ring-1 ring-white/15 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] bg-black/30 ${
+                  isPlaying ? 'scale-100' : 'scale-[0.92]'
+                }`}
+              >
+                <img
+                  src={crispCover}
+                  alt={currentTrack.title}
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+                  }}
+                  className="w-full h-full object-cover"
+                />
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Left-Aligned Title + Artist paired with Like/Favourite & More (...) Buttons */}
+          {/* Left-Aligned Thumbnail (during active video canvas) + Title + Artist paired with Like/Favourite & More (...) Buttons */}
           <div className="flex items-center justify-between gap-3 pt-2">
-            <div className="min-w-0 flex-1">
-              <h2 className="font-display text-lg sm:text-xl font-bold text-white tracking-tight truncate leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.45)]">
-                {currentTrack.title}
-              </h2>
-              <p className="text-[15px] font-medium text-white/75 truncate mt-0.5">
-                {currentTrack.artist}
-              </p>
+            <div className="flex items-center gap-3.5 min-w-0 flex-1">
+              {hasActiveVideoCanvas && (
+                <div
+                  className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden shadow-[0_14px_34px_rgba(0,0,0,0.7)] ring-1 ring-white/20 shrink-0 bg-black/40 transition-transform duration-300 ${
+                    isPlaying ? 'scale-100' : 'scale-95'
+                  }`}
+                >
+                  <img
+                    src={crispCover}
+                    alt={currentTrack.title}
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = ECHO_COVERS.global;
+                    }}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+
+              <div className="min-w-0 flex-1">
+                <h2 className="font-display text-lg sm:text-xl font-bold text-white tracking-tight truncate leading-snug drop-shadow-[0_2px_6px_rgba(0,0,0,0.65)]">
+                  {currentTrack.title}
+                </h2>
+                <p className="text-[15px] font-medium text-white/80 truncate mt-0.5 drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+                  {currentTrack.artist}
+                </p>
+              </div>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
