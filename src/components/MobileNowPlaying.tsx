@@ -24,8 +24,9 @@ import {
   AudioLines,
   ChevronLeft,
   X,
+  Film,
 } from 'lucide-react';
-import { Track, RepeatMode } from '../types';
+import { Track, RepeatMode, CanvasResolution } from '../types';
 import { tryFetchBackendJson } from '../lib/apiConfig';
 import { directFetchLyrics } from '../lib/directMusicProvider';
 import { canSaveTrackOffline } from '../lib/offlineVault';
@@ -62,6 +63,40 @@ interface MobileNowPlayingProps {
   isOfflineSaved?: boolean;
   isSavingOffline?: boolean;
   onToggleSaveOffline?: (track: Track) => void;
+  canvasEnabled?: boolean;
+  canvasResolution?: CanvasResolution;
+  onToggleCanvasEnabled?: () => void;
+  onChangeCanvasResolution?: (resolution: CanvasResolution) => void;
+}
+
+const CANVAS_RESOLUTION_OPTIONS: Array<{ id: CanvasResolution; label: string }> = [
+  { id: 'auto', label: 'Auto' },
+  { id: '1080p', label: '1080p' },
+  { id: '720p', label: '720p' },
+  { id: '480p', label: '480p' },
+  { id: '360p', label: '360p' },
+];
+
+function mapResolutionToYtVq(res: CanvasResolution): string {
+  switch (res) {
+    case '1080p':
+      return 'hd1080';
+    case '720p':
+      return 'hd720';
+    case '480p':
+      return 'large';
+    case '360p':
+      return 'medium';
+    case 'auto':
+    default: {
+      if (typeof navigator !== 'undefined') {
+        const eff = (navigator as unknown as { connection?: { effectiveType?: string } }).connection?.effectiveType;
+        if (eff === '2g' || eff === 'slow-2g') return 'medium';
+        if (eff === '3g') return 'large';
+      }
+      return 'hd720';
+    }
+  }
 }
 
 interface LrcLine {
@@ -98,7 +133,36 @@ export default function MobileNowPlaying({
   isOfflineSaved = false,
   isSavingOffline = false,
   onToggleSaveOffline,
+  canvasEnabled: propCanvasEnabled,
+  canvasResolution: propCanvasResolution,
+  onToggleCanvasEnabled,
+  onChangeCanvasResolution,
 }: MobileNowPlayingProps) {
+  const [localCanvasEnabled, setLocalCanvasEnabled] = useState(true);
+  const [localCanvasResolution, setLocalCanvasResolution] = useState<CanvasResolution>('auto');
+  const canvasEnabled = propCanvasEnabled ?? localCanvasEnabled;
+  const canvasResolution = propCanvasResolution ?? localCanvasResolution;
+  const ytQuality = mapResolutionToYtVq(canvasResolution);
+
+  const handleToggleCanvas = () => {
+    const next = !canvasEnabled;
+    if (onToggleCanvasEnabled) {
+      onToggleCanvasEnabled();
+    } else {
+      setLocalCanvasEnabled(next);
+    }
+    showToast(next ? 'Background video canvas on' : 'Background video canvas off');
+  };
+
+  const handleChangeCanvasResolution = (res: CanvasResolution) => {
+    if (onChangeCanvasResolution) {
+      onChangeCanvasResolution(res);
+    } else {
+      setLocalCanvasResolution(res);
+    }
+    showToast(`Canvas resolution: ${res === 'auto' ? 'Auto' : res}`);
+  };
+
   const [progress, setProgress] = useState<number>(
     () =>
       propProgress ??
@@ -134,6 +198,13 @@ export default function MobileNowPlaying({
   const canvasVideoRef = useRef<HTMLVideoElement>(null);
   const canvasIframeRef = useRef<HTMLIFrameElement>(null);
   const iframeFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canvasStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canvasFallbackTriedRef = useRef(false);
+  const activeTrackIdRef = useRef<string | null>(currentTrack?.id ?? null);
+  activeTrackIdRef.current = currentTrack?.id ?? null;
+  const ytInitialQualityRef = useRef<string>(mapResolutionToYtVq(canvasResolution));
+  const isVideoCanvasReadyRef = useRef(isVideoCanvasReady);
+  isVideoCanvasReadyRef.current = isVideoCanvasReady;
   const isPlayingRef = useRef(isPlaying);
   const lastSyncRef = useRef<{ songSec: number; wallMs: number }>({
     songSec: propProgress ?? 0,
@@ -244,24 +315,81 @@ export default function MobileNowPlaying({
     }
   }, [currentTrack, propDuration]);
 
-  // Fetch exact-song muted background video canvas on track change
+  const triggerYoutubeFallback = (trackId: string, trackTitle: string, trackArtist: string) => {
+    if (activeTrackIdRef.current !== trackId) return;
+    if (canvasFallbackTriedRef.current) {
+      setIsVideoCanvasReady(false);
+      setCanvasMedia(null);
+      return;
+    }
+    canvasFallbackTriedRef.current = true;
+    setIsVideoCanvasReady(false);
+    getCanvasMedia(trackTitle, trackArtist, canvasResolution, 'youtube')
+      .then((fallbackMedia) => {
+        if (activeTrackIdRef.current !== trackId) return;
+        if (fallbackMedia && (fallbackMedia.videoId || fallbackMedia.videoUrl)) {
+          ytInitialQualityRef.current = ytQuality;
+          setCanvasMedia(fallbackMedia);
+        } else {
+          setCanvasMedia(null);
+        }
+      })
+      .catch(() => {
+        if (activeTrackIdRef.current === trackId) {
+          setCanvasMedia(null);
+        }
+      });
+  };
+
+  const advanceYoutubeCandidate = () => {
+    setIsVideoCanvasReady(false);
+    setCanvasMedia((prev) => {
+      if (!prev) return null;
+      const remaining = Array.isArray(prev.fallbackVideoIds) ? prev.fallbackVideoIds : [];
+      if (remaining.length > 0) {
+        const [nextId, ...rest] = remaining;
+        ytInitialQualityRef.current = ytQuality;
+        return {
+          ...prev,
+          videoId: nextId,
+          fallbackVideoIds: rest,
+        };
+      }
+      return null;
+    });
+  };
+
+  // Fetch exact-song muted background video canvas on track or ON/OFF toggle change (never tear down on resolution tweak)
   useEffect(() => {
     if (iframeFadeTimerRef.current) {
       clearTimeout(iframeFadeTimerRef.current);
       iframeFadeTimerRef.current = null;
     }
-    setCanvasMedia(null);
+    if (canvasStallTimerRef.current) {
+      clearTimeout(canvasStallTimerRef.current);
+      canvasStallTimerRef.current = null;
+    }
+    canvasFallbackTriedRef.current = false;
     setIsVideoCanvasReady(false);
 
-    if (!currentTrack || currentTrack.source === 'local') return;
-    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    if (!canvasEnabled || !currentTrack || currentTrack.source === 'local') {
+      if (canvasVideoRef.current) {
+        try {
+          canvasVideoRef.current.pause();
+        } catch {
+          // Ignore
+        }
+      }
+      setCanvasMedia(null);
       return;
     }
 
+    setCanvasMedia(null);
     let cancelled = false;
-    getCanvasMedia(currentTrack.title, currentTrack.artist)
+    getCanvasMedia(currentTrack.title, currentTrack.artist, canvasResolution)
       .then((media) => {
         if (!cancelled && media && (media.videoUrl || media.videoId)) {
+          ytInitialQualityRef.current = ytQuality;
           setCanvasMedia(media);
         }
       })
@@ -273,13 +401,153 @@ export default function MobileNowPlaying({
         clearTimeout(iframeFadeTimerRef.current);
         iframeFadeTimerRef.current = null;
       }
+      if (canvasStallTimerRef.current) {
+        clearTimeout(canvasStallTimerRef.current);
+        canvasStallTimerRef.current = null;
+      }
     };
-  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.source]);
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.source, canvasEnabled]);
+
+  // Listen for live YouTube embed player state / error messages so we only reveal real playing video & rotate blocked embeds
+  useEffect(() => {
+    if (!canvasEnabled || !canvasMedia?.videoId) return;
+
+    const handleYtMessage = (event: MessageEvent) => {
+      if (typeof event.origin === 'string' && !event.origin.includes('youtube.com')) return;
+      let payload: any = event.data;
+      if (typeof payload === 'string') {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          return;
+        }
+      }
+      if (!payload || typeof payload !== 'object') return;
+
+      if (payload.event === 'onError') {
+        if (canvasStallTimerRef.current) {
+          clearTimeout(canvasStallTimerRef.current);
+          canvasStallTimerRef.current = null;
+        }
+        advanceYoutubeCandidate();
+        return;
+      }
+
+      if (payload.event === 'onReady') {
+        const win = canvasIframeRef.current?.contentWindow;
+        if (win) {
+          try {
+            win.postMessage(JSON.stringify({ event: 'command', func: 'mute', args: [] }), '*');
+            win.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackQuality', args: [ytQuality] }), '*');
+            win.postMessage(
+              JSON.stringify({ event: 'command', func: isPlayingRef.current ? 'playVideo' : 'pauseVideo', args: [] }),
+              '*'
+            );
+          } catch {
+            // Ignore
+          }
+        }
+      }
+
+      if (payload.event === 'infoDelivery' && payload.info && typeof payload.info === 'object') {
+        const state = payload.info.playerState;
+        const currTime = payload.info.currentTime;
+        if (state === 1 || (state === 2 && !isPlayingRef.current) || (typeof currTime === 'number' && currTime > 0.05)) {
+          if (canvasStallTimerRef.current) {
+            clearTimeout(canvasStallTimerRef.current);
+            canvasStallTimerRef.current = null;
+          }
+          setIsVideoCanvasReady(true);
+        }
+      }
+
+      if (payload.event === 'onStateChange') {
+        if (payload.info === 1 || (payload.info === 2 && !isPlayingRef.current)) {
+          if (canvasStallTimerRef.current) {
+            clearTimeout(canvasStallTimerRef.current);
+            canvasStallTimerRef.current = null;
+          }
+          setIsVideoCanvasReady(true);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleYtMessage);
+    return () => window.removeEventListener('message', handleYtMessage);
+  }, [canvasEnabled, canvasMedia?.videoId, ytQuality]);
+
+  // Ensure muted autoplay attributes, stall fallback for .m4v, and YouTube readiness timeout
+  useEffect(() => {
+    if (canvasStallTimerRef.current) {
+      clearTimeout(canvasStallTimerRef.current);
+      canvasStallTimerRef.current = null;
+    }
+    if (!canvasEnabled || !canvasMedia || !currentTrack) return;
+
+    if (canvasMedia.videoUrl) {
+      const vid = canvasVideoRef.current;
+      if (vid) {
+        vid.defaultMuted = true;
+        vid.muted = true;
+        vid.playsInline = true;
+        if (vid.readyState >= 2) {
+          setIsVideoCanvasReady(true);
+        }
+        if (isPlayingRef.current) {
+          const p = vid.play();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        }
+      }
+
+      // If Apple .m4v fails to decode frame 1 within 7.5s, fall back cleanly to YouTube canvas
+      canvasStallTimerRef.current = setTimeout(() => {
+        const currentVid = canvasVideoRef.current;
+        if (!currentVid || currentVid.readyState < 2) {
+          triggerYoutubeFallback(currentTrack.id, currentTrack.title, currentTrack.artist);
+        }
+      }, 7500);
+    } else if (canvasMedia.videoId) {
+      // If YouTube candidate fails to enter playable state within 6s (e.g. blocked embed), advance or keep crisp album cover
+      canvasStallTimerRef.current = setTimeout(() => {
+        if (!isVideoCanvasReadyRef.current) {
+          advanceYoutubeCandidate();
+        }
+      }, 6000);
+    }
+
+    return () => {
+      if (canvasStallTimerRef.current) {
+        clearTimeout(canvasStallTimerRef.current);
+        canvasStallTimerRef.current = null;
+      }
+    };
+  }, [canvasMedia?.videoUrl, canvasMedia?.videoId, canvasEnabled, currentTrack?.id]);
+
+  // Apply canvas resolution adjustments live without interrupting playback
+  useEffect(() => {
+    if (!canvasEnabled) return;
+    const iframe = canvasIframeRef.current;
+    if (iframe?.contentWindow && canvasMedia?.videoId) {
+      try {
+        iframe.contentWindow.postMessage(
+          JSON.stringify({ event: 'command', func: 'setPlaybackQualityRange', args: [ytQuality, ytQuality] }),
+          '*'
+        );
+        iframe.contentWindow.postMessage(
+          JSON.stringify({ event: 'command', func: 'setPlaybackQuality', args: [ytQuality] }),
+          '*'
+        );
+      } catch {
+        // Ignore cross-origin postMessage timing
+      }
+    }
+  }, [ytQuality, canvasEnabled, canvasMedia?.videoId]);
 
   // Sync muted background video canvas play/pause with audio state
   useEffect(() => {
     const vid = canvasVideoRef.current;
-    if (vid) {
+    if (vid && canvasEnabled) {
+      vid.defaultMuted = true;
       vid.muted = true;
       if (isPlaying) {
         const playPromise = vid.play();
@@ -292,7 +560,7 @@ export default function MobileNowPlaying({
     }
 
     const iframe = canvasIframeRef.current;
-    if (iframe?.contentWindow && canvasMedia?.videoId) {
+    if (iframe?.contentWindow && canvasMedia?.videoId && canvasEnabled) {
       try {
         iframe.contentWindow.postMessage(
           JSON.stringify({
@@ -306,7 +574,7 @@ export default function MobileNowPlaying({
         // Ignore cross-origin postMessage readiness timing
       }
     }
-  }, [isPlaying, canvasMedia?.videoUrl, canvasMedia?.videoId]);
+  }, [isPlaying, canvasEnabled, canvasMedia?.videoUrl, canvasMedia?.videoId]);
 
   useEffect(() => {
     if (!currentTrack) return;
@@ -489,7 +757,9 @@ export default function MobileNowPlaying({
 
   const crispCover = getCrispCoverUrl(currentTrack.coverUrl, ECHO_COVERS.global);
   const backdropCover = crispCover;
-  const hasActiveVideoCanvas = Boolean(canvasMedia && (canvasMedia.videoUrl || canvasMedia.videoId) && isVideoCanvasReady);
+  const hasActiveVideoCanvas = Boolean(
+    canvasEnabled && canvasMedia && (canvasMedia.videoUrl || canvasMedia.videoId) && isVideoCanvasReady
+  );
   const isLyricsView = activeTab === 'lyrics';
   const isQueueView = activeTab === 'queue';
 
@@ -558,10 +828,10 @@ export default function MobileNowPlaying({
               ? 'blur-3xl scale-110 opacity-75'
               : isQueueView
                 ? 'blur-2xl scale-105 opacity-45'
-                : 'blur-0 scale-100 opacity-100'
+                : 'scale-100 opacity-100'
           }`}
         >
-          {canvasMedia?.videoUrl ? (
+          {!canvasEnabled ? null : canvasMedia?.videoUrl ? (
             <video
               ref={canvasVideoRef}
               key={`mv-${currentTrack.id}-${canvasMedia.videoUrl}`}
@@ -572,76 +842,126 @@ export default function MobileNowPlaying({
               playsInline
               preload="auto"
               aria-hidden="true"
-              onCanPlay={() => setIsVideoCanvasReady(true)}
+              onLoadedMetadata={() => {
+                const vid = canvasVideoRef.current;
+                if (vid) {
+                  vid.defaultMuted = true;
+                  vid.muted = true;
+                  if (isPlayingRef.current) {
+                    vid.play().catch(() => {});
+                  } else {
+                    vid.pause();
+                  }
+                }
+              }}
+              onLoadedData={() => {
+                if (canvasStallTimerRef.current) {
+                  clearTimeout(canvasStallTimerRef.current);
+                  canvasStallTimerRef.current = null;
+                }
+                setIsVideoCanvasReady(true);
+                const vid = canvasVideoRef.current;
+                if (vid && !isPlayingRef.current) vid.pause();
+              }}
+              onCanPlay={() => {
+                if (canvasStallTimerRef.current) {
+                  clearTimeout(canvasStallTimerRef.current);
+                  canvasStallTimerRef.current = null;
+                }
+                setIsVideoCanvasReady(true);
+              }}
               onPlaying={() => setIsVideoCanvasReady(true)}
               onError={() => {
-                setIsVideoCanvasReady(false);
-                setCanvasMedia(null);
+                if (canvasStallTimerRef.current) {
+                  clearTimeout(canvasStallTimerRef.current);
+                  canvasStallTimerRef.current = null;
+                }
+                triggerYoutubeFallback(currentTrack.id, currentTrack.title, currentTrack.artist);
               }}
-              className={`w-full h-full object-cover object-center scale-[1.06] pointer-events-none transition-opacity duration-700 ${
-                isVideoCanvasReady ? 'opacity-90' : 'opacity-0'
+              className={`w-full h-full object-cover object-center scale-[1.06] pointer-events-none transition-all duration-500 ${
+                isVideoCanvasReady ? 'opacity-95' : 'opacity-0'
+              } ${
+                canvasResolution === '360p'
+                  ? 'blur-[0.6px] brightness-95'
+                  : canvasResolution === '480p'
+                    ? 'blur-[0.25px]'
+                    : ''
               }`}
             />
           ) : canvasMedia?.videoId ? (
             <iframe
               ref={canvasIframeRef}
               key={`yt-${currentTrack.id}-${canvasMedia.videoId}`}
-              src={`https://www.youtube-nocookie.com/embed/${canvasMedia.videoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${canvasMedia.videoId}&playsinline=1&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&enablejsapi=1`}
+              src={`https://www.youtube.com/embed/${canvasMedia.videoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${canvasMedia.videoId}&playsinline=1&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&enablejsapi=1&vq=${ytInitialQualityRef.current}${
+                typeof window !== 'undefined' && /^https?:\/\//i.test(window.location.origin)
+                  ? `&origin=${encodeURIComponent(window.location.origin)}`
+                  : ''
+              }`}
               title=""
               aria-hidden="true"
               tabIndex={-1}
-              allow="autoplay; encrypted-media"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               onLoad={() => {
-                if (iframeFadeTimerRef.current) clearTimeout(iframeFadeTimerRef.current);
-                iframeFadeTimerRef.current = setTimeout(() => {
-                  setIsVideoCanvasReady(true);
-                  if (!isPlayingRef.current && canvasIframeRef.current?.contentWindow) {
-                    try {
-                      canvasIframeRef.current.contentWindow.postMessage(
-                        JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }),
-                        '*'
-                      );
-                    } catch {
-                      // Ignore
+                const win = canvasIframeRef.current?.contentWindow;
+                if (win) {
+                  try {
+                    win.postMessage(JSON.stringify({ event: 'listening', id: 'aura-yt-canvas' }), '*');
+                    win.postMessage(JSON.stringify({ event: 'command', func: 'mute', args: [] }), '*');
+                    win.postMessage(
+                      JSON.stringify({ event: 'command', func: 'setPlaybackQualityRange', args: [ytQuality, ytQuality] }),
+                      '*'
+                    );
+                    win.postMessage(
+                      JSON.stringify({ event: 'command', func: 'setPlaybackQuality', args: [ytQuality] }),
+                      '*'
+                    );
+                    if (isPlayingRef.current) {
+                      win.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+                    } else {
+                      win.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*');
                     }
+                  } catch {
+                    // Ignore cross-origin postMessage timing
                   }
-                }, 900);
+                }
               }}
               onError={() => {
-                setIsVideoCanvasReady(false);
-                setCanvasMedia(null);
+                advanceYoutubeCandidate();
               }}
-              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[195vh] min-w-[115%] h-[125%] min-h-[115vw] border-0 pointer-events-none scale-[1.16] transition-opacity duration-700 ${
-                isVideoCanvasReady ? 'opacity-85' : 'opacity-0'
+              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[max(112%,200vh)] h-[max(112%,64vw)] border-0 pointer-events-none scale-[1.08] transition-opacity duration-500 ${
+                isVideoCanvasReady ? 'opacity-90' : 'opacity-0'
               }`}
             />
           ) : null}
         </div>
 
-        {/* Full-Blur Frosted Veil when Lyrics (or Queue) is active */}
-        <div
-          aria-hidden="true"
-          className={`absolute inset-0 bg-black/55 backdrop-blur-[56px] saturate-150 transition-opacity duration-500 ${
-            isLyricsView ? 'opacity-100' : isQueueView ? 'opacity-85' : 'opacity-0'
-          }`}
-        />
+        {/* Full-Blur Frosted Veil ONLY when Lyrics (or Queue) is active */}
+        {(isLyricsView || isQueueView) && (
+          <div
+            aria-hidden="true"
+            className={`absolute inset-0 backdrop-blur-3xl saturate-150 transition-opacity duration-500 ${
+              isLyricsView ? 'bg-black/60 opacity-100' : 'bg-black/55 opacity-90'
+            }`}
+          />
+        )}
 
         {/* Downward Black Blur Mist + Bottom-Up Dark Gradient Vignette (Streaming Canvas Look) */}
-        <div
-          aria-hidden="true"
-          className={`absolute inset-x-0 bottom-0 h-[52vh] backdrop-blur-xl transition-opacity duration-500 ${
-            hasActiveVideoCanvas && !isLyricsView ? 'opacity-100' : 'opacity-0'
-          }`}
-          style={{
-            maskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 34%, black 70%, black 100%)',
-            WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 34%, black 70%, black 100%)',
-          }}
-        />
+        {hasActiveVideoCanvas && !isLyricsView && (
+          <div
+            aria-hidden="true"
+            className="absolute inset-x-0 bottom-0 h-[50vh] backdrop-blur-xl transition-opacity duration-500 opacity-100"
+            style={{
+              maskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.42) 34%, black 70%, black 100%)',
+              WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.42) 34%, black 70%, black 100%)',
+            }}
+          />
+        )}
         <div
           aria-hidden="true"
           className={`absolute inset-0 transition-all duration-500 ${
             hasActiveVideoCanvas && !isLyricsView
-              ? 'bg-gradient-to-b from-black/45 via-black/15 via-40% to-[#050505]/95'
+              ? 'bg-gradient-to-b from-black/35 via-black/10 to-[#050505]/95'
               : 'bg-gradient-to-b from-white/[0.06] via-black/26 to-black/72'
           }`}
         />
@@ -1112,7 +1432,7 @@ export default function MobileNowPlaying({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md aura-sheet rounded-t-3xl sm:rounded-2xl p-6 pb-8 flex flex-col gap-2"
+            className="w-full max-w-md aura-sheet rounded-t-3xl sm:rounded-2xl p-6 pb-8 flex flex-col gap-2 max-h-[85vh] overflow-y-auto scrollbar-none"
           >
             <div className="flex items-center gap-3 pb-4 border-b border-[#2A2A2A]">
               <img
@@ -1133,6 +1453,62 @@ export default function MobileNowPlaying({
               >
                 <X className="w-4 h-4" />
               </button>
+            </div>
+
+            {/* Background Video Canvas Toggle + Resolution Control */}
+            <div className="rounded-xl bg-[#1B1B1B] border border-[#2A2A2A] p-3.5 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Film className="w-4 h-4 text-white shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">Background Video Canvas</p>
+                    <p className="text-[11px] text-[#A3A3A3] truncate">
+                      {canvasEnabled ? 'Official song video backdrop active' : 'Showing blurred album art only'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={canvasEnabled}
+                  aria-label="Toggle background video canvas"
+                  onClick={handleToggleCanvas}
+                  className={`relative w-11 h-6 rounded-full border transition-colors cursor-pointer shrink-0 ${
+                    canvasEnabled ? 'bg-white border-white' : 'bg-[#111111] border-[#303030]'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 rounded-full transition-transform ${
+                      canvasEnabled ? 'translate-x-5 bg-black' : 'translate-x-0 bg-[#A3A3A3]'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {canvasEnabled && (
+                <div className="pt-2 border-t border-[#2A2A2A] flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-[#A3A3A3] shrink-0">Resolution</span>
+                  <div className="flex items-center gap-1 flex-wrap justify-end">
+                    {CANVAS_RESOLUTION_OPTIONS.map((opt) => {
+                      const active = canvasResolution === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handleChangeCanvasResolution(opt.id)}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                            active
+                              ? 'bg-white text-black'
+                              : 'bg-[#111111] text-[#A3A3A3] border border-[#2A2A2A] hover:text-white'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             <button

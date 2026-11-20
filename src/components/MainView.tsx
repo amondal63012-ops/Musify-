@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo, lazy, Suspense } from 'react';
 import {
   Play,
   Pause,
@@ -24,16 +24,18 @@ import {
 } from '../types';
 import { searchArtists, getViralSongs } from '../api';
 import HomeView from './HomeView';
-import ExploreView from './ExploreView';
-import BrowseCategories, { BrowseCategoryItem } from './BrowseCategories';
-import PlaylistView from './PlaylistView';
-import MobileLibraryView from './MobileLibraryView';
+import type { BrowseCategoryItem } from './BrowseCategories';
 import { getCrispCoverUrl } from '../lib/coverUrl';
-import ArtistView from './ArtistView';
-import ArtistsListView from './ArtistsListView';
-import ProfileView from './ProfileView';
-import SettingsView from './SettingsView';
 import { PWAInstallButton } from './PWAInstallButton';
+
+const ExploreView = lazy(() => import('./ExploreView'));
+const BrowseCategories = lazy(() => import('./BrowseCategories'));
+const PlaylistView = lazy(() => import('./PlaylistView'));
+const MobileLibraryView = lazy(() => import('./MobileLibraryView'));
+const ArtistView = lazy(() => import('./ArtistView'));
+const ArtistsListView = lazy(() => import('./ArtistsListView'));
+const ProfileView = lazy(() => import('./ProfileView'));
+const SettingsView = lazy(() => import('./SettingsView'));
 import { ECHO_COVERS } from './echoCovers';
 import AuraLogo from './design/AuraLogo';
 import SearchBar from './design/SearchBar';
@@ -487,6 +489,13 @@ const MainView = forwardRef(({
 
       {/* Main Route Viewport */}
       <div className="flex-1 relative z-10">
+        <Suspense
+          fallback={
+            <div className="px-4 sm:px-6 lg:px-8 pt-4">
+              <LoadingSkeleton variant="cards" count={4} />
+            </div>
+          }
+        >
         {currentView === 'home' && (
           <HomeView
             currentTrack={currentTrack}
@@ -879,6 +888,7 @@ const MainView = forwardRef(({
             )}
           </>
         )}
+        </Suspense>
       </div>
     </main>
   );

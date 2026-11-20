@@ -1,4 +1,5 @@
 import { resolveApiUrl, tryFetchBackendJson } from './lib/apiConfig';
+import { CanvasResolution } from './types';
 import {
   DIRECT_FEATURED_ARTISTS,
   directGetArtistDetails,
@@ -11,6 +12,53 @@ import {
 
 const DEFAULT_COVER =
   'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
+
+const SWR_FRESH_MS = 1000 * 60 * 10; // 10 minutes
+const SWR_STALE_MS = 1000 * 60 * 60 * 24; // 24 hours fallback cache
+
+interface SwrEntry<T> {
+  ts: number;
+  data: T;
+}
+
+const memoryFeedCache = new Map<string, SwrEntry<any>>();
+const inFlightRequests = new Map<string, Promise<any>>();
+
+function readSwrCache<T>(key: string): SwrEntry<T> | null {
+  const mem = memoryFeedCache.get(key);
+  if (mem) return mem as SwrEntry<T>;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SwrEntry<T>;
+    if (!parsed || typeof parsed.ts !== 'number' || !parsed.data) return null;
+    if (Date.now() - parsed.ts > SWR_STALE_MS) return null;
+    memoryFeedCache.set(key, parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSwrCache<T>(key: string, data: T): void {
+  const entry: SwrEntry<T> = { ts: Date.now(), data };
+  memoryFeedCache.set(key, entry);
+  try {
+    localStorage.setItem(key, JSON.stringify(entry));
+  } catch {
+    // Ignore storage quota issues cleanly
+  }
+}
+
+function dedupeInFlight<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const existing = inFlightRequests.get(key);
+  if (existing) return existing as Promise<T>;
+  const req = fetcher().finally(() => {
+    inFlightRequests.delete(key);
+  });
+  inFlightRequests.set(key, req);
+  return req;
+}
 
 function normalizeTrackList(data: any[]): any[] {
   return data
@@ -34,42 +82,86 @@ function normalizeTrackList(data: any[]): any[] {
 }
 
 export const searchTracks = async (term: string): Promise<any[]> => {
-  try {
-    const data = await tryFetchBackendJson<any[]>(`/api/search?q=${encodeURIComponent(term)}`);
-    if (Array.isArray(data) && data.length > 0) {
-      return normalizeTrackList(data);
+  const trimmed = term.trim();
+  const isDefaultSeed = trimmed === 'Global Top Hits Official';
+  const cacheKey = isDefaultSeed ? 'aura_swr_default_tracks_v1' : `search:${trimmed.toLowerCase()}`;
+
+  if (isDefaultSeed) {
+    const cached = readSwrCache<any[]>(cacheKey);
+    if (cached && cached.data.length > 0) {
+      if (Date.now() - cached.ts > SWR_FRESH_MS) {
+        dedupeInFlight(cacheKey, async () => {
+          const data = await tryFetchBackendJson<any[]>(`/api/search?q=${encodeURIComponent(term)}`);
+          const list = Array.isArray(data) && data.length > 0 ? data : await directSearchTracks(term);
+          const normalized = normalizeTrackList(list);
+          if (normalized.length > 0) writeSwrCache(cacheKey, normalized);
+          return normalized;
+        }).catch(() => {});
+      }
+      return cached.data;
     }
-    const direct = await directSearchTracks(term);
-    return normalizeTrackList(direct);
-  } catch (error) {
-    console.error('Error fetching tracks:', error);
-    return [];
   }
+
+  return dedupeInFlight(cacheKey, async () => {
+    try {
+      const data = await tryFetchBackendJson<any[]>(`/api/search?q=${encodeURIComponent(term)}`);
+      if (Array.isArray(data) && data.length > 0) {
+        const normalized = normalizeTrackList(data);
+        if (isDefaultSeed && normalized.length > 0) writeSwrCache(cacheKey, normalized);
+        return normalized;
+      }
+      const direct = await directSearchTracks(term);
+      const normalized = normalizeTrackList(direct);
+      if (isDefaultSeed && normalized.length > 0) writeSwrCache(cacheKey, normalized);
+      return normalized;
+    } catch (error) {
+      console.error('Error fetching tracks:', error);
+      return [];
+    }
+  });
 };
 
 export const getCharts = async (): Promise<any[]> => {
-  try {
-    const data = await tryFetchBackendJson<any[]>('/api/charts');
-    const charts = Array.isArray(data) ? data : await directGetCharts();
-    if (!Array.isArray(charts)) return [];
-    return charts.map((chart: any) => ({
-      ...chart,
-      coverUrl: chart.coverUrl || DEFAULT_COVER,
-      tracks: Array.isArray(chart.tracks) ? normalizeTrackList(chart.tracks) : [],
-    }));
-  } catch (error) {
-    console.error('Error fetching charts:', error);
-    return [];
+  const cacheKey = 'aura_swr_charts_v1';
+  const fetchFresh = () =>
+    dedupeInFlight(cacheKey, async () => {
+      try {
+        const data = await tryFetchBackendJson<any[]>('/api/charts');
+        const charts = Array.isArray(data) ? data : await directGetCharts();
+        if (!Array.isArray(charts)) return [];
+        const normalized = charts.map((chart: any) => ({
+          ...chart,
+          coverUrl: chart.coverUrl || DEFAULT_COVER,
+          tracks: Array.isArray(chart.tracks) ? normalizeTrackList(chart.tracks) : [],
+        }));
+        if (normalized.length > 0) writeSwrCache(cacheKey, normalized);
+        return normalized;
+      } catch (error) {
+        console.error('Error fetching charts:', error);
+        return [];
+      }
+    });
+
+  const cached = readSwrCache<any[]>(cacheKey);
+  if (cached && cached.data.length > 0) {
+    if (Date.now() - cached.ts > SWR_FRESH_MS) {
+      fetchFresh().catch(() => {});
+    }
+    return cached.data;
   }
+
+  return fetchFresh();
 };
 
 export interface CanvasMedia {
   videoUrl: string | null;
   videoId: string | null;
+  fallbackVideoIds?: string[];
   provider?: 'apple-mv' | 'youtube-canvas' | null;
   title?: string | null;
   artist?: string | null;
   thumbnail?: string | null;
+  quality?: CanvasResolution;
 }
 
 const canvasClientCache = new Map<string, CanvasMedia | null>();
@@ -79,7 +171,7 @@ function normalizeCanvasClientText(str: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/\((?:feat\.?|ft\.?|featuring|with|from|official|music\s+video|video\s+song|hd|4k|explicit|clean|single\s+version|album\s+version|radio\s+edit|visualizer)[^)]*\)/gi, ' ')
+    .replace(/\((?:feat\.?|ft\.?|featuring|with|from|official|music\s+video|video\s+song|hd|4k|8k|uhd|explicit|clean|single\s+version|album\s+version|radio\s+edit|visualizer)[^)]*\)/gi, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\b(?:feat\.?|ft\.?|featuring)\b.*$/i, ' ')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
@@ -121,6 +213,7 @@ async function directItunesCanvasFallback(title: string, artist: string): Promis
       return {
         videoUrl: previewUrl.replace(/^http:\/\//i, 'https://'),
         videoId: null,
+        fallbackVideoIds: [],
         provider: 'apple-mv',
         title: item.trackName || title,
         artist: item.artistName || artist,
@@ -133,40 +226,50 @@ async function directItunesCanvasFallback(title: string, artist: string): Promis
   }
 }
 
-export const getCanvasMedia = async (title: string, artist: string): Promise<CanvasMedia | null> => {
+export const getCanvasMedia = async (
+  title: string,
+  artist: string,
+  quality: CanvasResolution = 'auto',
+  prefer: 'auto' | 'youtube' = 'auto'
+): Promise<CanvasMedia | null> => {
   if (!title) return null;
-  const cacheKey = `${normalizeCanvasClientText(title)}:::${normalizeCanvasClientText(artist)}`;
+  const cacheTier = prefer === 'youtube' ? 'yt' : 'auto';
+  const cacheKey = `${normalizeCanvasClientText(title)}:::${normalizeCanvasClientText(artist)}:::${cacheTier}`;
   if (canvasClientCache.has(cacheKey)) {
     return canvasClientCache.get(cacheKey) ?? null;
   }
 
-  try {
-    const data = await tryFetchBackendJson<CanvasMedia>(
-      `/api/canvas?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist || '')}`
-    );
-    let resolved: CanvasMedia | null = null;
-    if (data && (data.videoUrl || data.videoId)) {
-      resolved = {
-        videoUrl: data.videoUrl || null,
-        videoId: data.videoId || null,
-        provider: data.provider || (data.videoUrl ? 'apple-mv' : 'youtube-canvas'),
-        title: data.title || null,
-        artist: data.artist || null,
-        thumbnail: data.thumbnail || null,
-      };
-    } else if (data === null) {
-      resolved = await directItunesCanvasFallback(title, artist);
-    }
+  return dedupeInFlight(`canvas:${cacheKey}`, async () => {
+    try {
+      const data = await tryFetchBackendJson<CanvasMedia>(
+        `/api/canvas?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist || '')}&quality=${encodeURIComponent(quality)}&prefer=${prefer}`
+      );
+      let resolved: CanvasMedia | null = null;
+      if (data && (data.videoUrl || data.videoId)) {
+        resolved = {
+          videoUrl: data.videoUrl || null,
+          videoId: data.videoId || null,
+          fallbackVideoIds: Array.isArray(data.fallbackVideoIds) ? data.fallbackVideoIds : [],
+          provider: data.provider || (data.videoUrl ? 'apple-mv' : 'youtube-canvas'),
+          title: data.title || null,
+          artist: data.artist || null,
+          thumbnail: data.thumbnail || null,
+          quality,
+        };
+      } else if (data === null && prefer !== 'youtube') {
+        resolved = await directItunesCanvasFallback(title, artist);
+      }
 
-    if (canvasClientCache.size > 150) {
-      const oldestKey = canvasClientCache.keys().next().value;
-      if (oldestKey) canvasClientCache.delete(oldestKey);
+      if (canvasClientCache.size > 150) {
+        const oldestKey = canvasClientCache.keys().next().value;
+        if (oldestKey) canvasClientCache.delete(oldestKey);
+      }
+      canvasClientCache.set(cacheKey, resolved);
+      return resolved;
+    } catch {
+      return null;
     }
-    canvasClientCache.set(cacheKey, resolved);
-    return resolved;
-  } catch {
-    return null;
-  }
+  });
 };
 
 export const getCanvasVideo = async (title: string, artist: string): Promise<string | null> => {
@@ -175,24 +278,56 @@ export const getCanvasVideo = async (title: string, artist: string): Promise<str
 };
 
 export const getViralSongs = async (): Promise<any[]> => {
-  try {
-    const data = await tryFetchBackendJson<any[]>('/api/viral');
-    const viral = Array.isArray(data) ? data : await directGetViralSongs();
-    return Array.isArray(viral) ? normalizeTrackList(viral) : [];
-  } catch (error) {
-    console.error('Error fetching viral songs:', error);
-    return [];
+  const cacheKey = 'aura_swr_viral_v1';
+  const fetchFresh = () =>
+    dedupeInFlight(cacheKey, async () => {
+      try {
+        const data = await tryFetchBackendJson<any[]>('/api/viral');
+        const viral = Array.isArray(data) ? data : await directGetViralSongs();
+        const normalized = Array.isArray(viral) ? normalizeTrackList(viral) : [];
+        if (normalized.length > 0) writeSwrCache(cacheKey, normalized);
+        return normalized;
+      } catch (error) {
+        console.error('Error fetching viral songs:', error);
+        return [];
+      }
+    });
+
+  const cached = readSwrCache<any[]>(cacheKey);
+  if (cached && cached.data.length > 0) {
+    if (Date.now() - cached.ts > SWR_FRESH_MS) {
+      fetchFresh().catch(() => {});
+    }
+    return cached.data;
   }
+
+  return fetchFresh();
 };
 
 export const getArtists = async (): Promise<any[]> => {
-  try {
-    const data = await tryFetchBackendJson<any[]>('/api/artists');
-    return Array.isArray(data) ? data : DIRECT_FEATURED_ARTISTS;
-  } catch (error) {
-    console.error('Error fetching artists:', error);
-    return DIRECT_FEATURED_ARTISTS;
+  const cacheKey = 'aura_swr_artists_v1';
+  const fetchFresh = () =>
+    dedupeInFlight(cacheKey, async () => {
+      try {
+        const data = await tryFetchBackendJson<any[]>('/api/artists');
+        const artists = Array.isArray(data) ? data : DIRECT_FEATURED_ARTISTS;
+        if (Array.isArray(artists) && artists.length > 0) writeSwrCache(cacheKey, artists);
+        return artists;
+      } catch (error) {
+        console.error('Error fetching artists:', error);
+        return DIRECT_FEATURED_ARTISTS;
+      }
+    });
+
+  const cached = readSwrCache<any[]>(cacheKey);
+  if (cached && cached.data.length > 0) {
+    if (Date.now() - cached.ts > SWR_FRESH_MS) {
+      fetchFresh().catch(() => {});
+    }
+    return cached.data;
   }
+
+  return fetchFresh();
 };
 
 export const searchArtists = async (query: string): Promise<any[]> => {

@@ -2311,6 +2311,7 @@ app.get(['/api/charts', '/charts'], async (req, res) => {
 interface CanvasResolution {
   videoUrl: string | null;
   videoId: string | null;
+  fallbackVideoIds?: string[];
   provider: 'apple-mv' | 'youtube-canvas' | null;
   title: string | null;
   artist: string | null;
@@ -2542,12 +2543,12 @@ function youtubeTitleExactlyMatchesSong(
 ): { matched: boolean; exactSegment: boolean } {
   const cleanedRaw = foldDiacritics(cleanText(rawVideoTitle || ''))
     .toLowerCase()
-    .replace(/\([^)]*(?:official|music\s*video|video\s*song|full\s*video|full\s*song|m\/v|mv|visualizer|4k|8k|uhd|hd|remastered|feat\.?|ft\.?|from)[^)]*\)/gi, ' ')
-    .replace(/\[[^\]]*(?:official|music\s*video|video\s*song|full\s*video|full\s*song|m\/v|mv|visualizer|4k|8k|uhd|hd|remastered|feat\.?|ft\.?|from)[^\]]*\]/gi, ' ');
+    .replace(/\([^)]*(?:official|music\s*video|video\s*song|full\s*video|full\s*song|m\/v|mv|visualizer|4k|8k|uhd|hd|remastered|feat\.?|ft\.?|from|song|video)[^)]*\)/gi, ' ')
+    .replace(/\[[^\]]*(?:official|music\s*video|video\s*song|full\s*video|full\s*song|m\/v|mv|visualizer|4k|8k|uhd|hd|remastered|feat\.?|ft\.?|from|song|video)[^\]]*\]/gi, ' ');
 
-  // Split by major delimiters found in official YouTube music video titles
+  // Split by major delimiters found in official YouTube music video titles (including "Movie: Song Title")
   const segments = cleanedRaw
-    .split(/[|\n•/]|\s+[-–—:]\s+/)
+    .split(/[|\n•/]|\s+[-–—:]\s+|:\s+/)
     .map((seg) =>
       seg
         .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
@@ -2652,9 +2653,11 @@ async function resolveYoutubeCanvas(
     if (!titleCheck.matched) continue;
 
     const candFullNorm = foldDiacritics(rawVideoTitle).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const candFullCompact = candFullNorm.replace(/\s+/g, '');
     const titleCreditsTargetArtist = targetArtists.some((ta) => {
       const taNorm = foldDiacritics(cleanText(ta)).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-      return Boolean(taNorm && candFullNorm.includes(taNorm));
+      const taCompact = taNorm.replace(/\s+/g, '');
+      return Boolean((taNorm && candFullNorm.includes(taNorm)) || (taCompact.length >= 4 && candFullCompact.includes(taCompact)));
     });
 
     // Check YouTube channel author strictly against target artists / Vevo / Official artist channels
@@ -2689,18 +2692,26 @@ async function resolveYoutubeCanvas(
 
   scoredCandidates.sort((a, b) => b.score - a.score);
 
-  for (const cand of scoredCandidates.slice(0, 3)) {
-    const embeddable = await isYoutubeOembedAvailable(cand.videoId);
-    if (embeddable) {
-      return {
-        videoUrl: null,
-        videoId: cand.videoId,
-        provider: 'youtube-canvas',
-        title: cand.title,
-        artist: cand.author,
-        thumbnail: cand.thumb,
-      };
-    }
+  const validCandidates: Array<{ videoId: string; title: string; author: string; thumb: string | null }> = [];
+  const topCandidates = scoredCandidates.slice(0, 4);
+  const oembedChecks = await Promise.all(
+    topCandidates.map(async (cand) => ((await isYoutubeOembedAvailable(cand.videoId)) ? cand : null))
+  );
+  for (const okCand of oembedChecks) {
+    if (okCand) validCandidates.push(okCand);
+  }
+
+  if (validCandidates.length > 0) {
+    const primary = validCandidates[0];
+    return {
+      videoUrl: null,
+      videoId: primary.videoId,
+      fallbackVideoIds: validCandidates.slice(1).map((c) => c.videoId),
+      provider: 'youtube-canvas',
+      title: primary.title,
+      artist: primary.author,
+      thumbnail: primary.thumb,
+    };
   }
 
   return null;
@@ -2709,36 +2720,50 @@ async function resolveYoutubeCanvas(
 app.get(['/api/canvas', '/canvas'], async (req, res) => {
   const rawTitle = cleanText(String(req.query.title || ''));
   const rawArtist = cleanText(String(req.query.artist || ''));
+  const rawQuality = String(req.query.quality || 'auto').toLowerCase();
+  const preferParam = String(req.query.prefer || 'auto').toLowerCase() === 'youtube' ? 'youtube' : 'auto';
+  const quality = (['auto', '1080p', '720p', '480p', '360p'].includes(rawQuality) ? rawQuality : 'auto') as
+    | 'auto'
+    | '1080p'
+    | '720p'
+    | '480p'
+    | '360p';
 
   if (!rawTitle) {
-    res.json({ videoUrl: null, videoId: null, provider: null, title: null, artist: null, thumbnail: null });
+    res.json({ videoUrl: null, videoId: null, provider: null, title: null, artist: null, thumbnail: null, quality });
     return;
   }
 
   const targetArtists = splitArtistEntities(rawArtist);
   const primaryArtist = targetArtists[0] || rawArtist;
   const cleanTitle = cleanSongTitle(rawTitle, primaryArtist) || rawTitle;
+  const preferYoutubeOnly = preferParam === 'youtube';
 
-  const cacheKey = `${normalizeCanvasTitle(cleanTitle)}:::${foldDiacritics(primaryArtist).toLowerCase().trim()}`;
+  const cacheKey = `${normalizeCanvasTitle(cleanTitle)}:::${foldDiacritics(primaryArtist).toLowerCase().trim()}:::${preferYoutubeOnly ? 'yt' : 'auto'}`;
   const now = Date.now();
   const cached = canvasResolutionCache.get(cacheKey);
   if (cached && cached.exp > now) {
-    res.json(cached.data);
+    res.json({ ...cached.data, quality });
     return;
   }
 
   try {
-    // Tier 1: Direct watermark-free Apple MusicVideo .m4v stream
-    let resolved = await resolveItunesMusicVideoCanvas(cleanTitle, rawTitle, rawArtist, targetArtists);
-
-    // Tier 2: Official YouTube Music Video embed fallback when iTunes MV is absent
-    if (!resolved) {
+    let resolved: CanvasResolution | null = null;
+    if (preferYoutubeOnly) {
       resolved = await resolveYoutubeCanvas(cleanTitle, rawTitle, rawArtist, targetArtists);
+    } else {
+      // Tier 1: Direct watermark-free Apple MusicVideo .m4v stream
+      resolved = await resolveItunesMusicVideoCanvas(cleanTitle, rawTitle, rawArtist, targetArtists);
+      // Tier 2: Official YouTube Music Video embed fallback when iTunes MV is absent
+      if (!resolved) {
+        resolved = await resolveYoutubeCanvas(cleanTitle, rawTitle, rawArtist, targetArtists);
+      }
     }
 
     const result: CanvasResolution = resolved || {
       videoUrl: null,
       videoId: null,
+      fallbackVideoIds: [],
       provider: null,
       title: null,
       artist: null,
@@ -2755,10 +2780,10 @@ app.get(['/api/canvas', '/canvas'], async (req, res) => {
       exp: now + (resolved ? 1000 * 60 * 60 * 6 : 1000 * 60 * 10),
     });
 
-    res.json(result);
+    res.json({ ...result, quality });
   } catch (err) {
     console.error('Canvas resolution error:', err);
-    res.json({ videoUrl: null, videoId: null, provider: null, title: null, artist: null, thumbnail: null });
+    res.json({ videoUrl: null, videoId: null, provider: null, title: null, artist: null, thumbnail: null, quality });
   }
 });
 

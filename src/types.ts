@@ -53,6 +53,8 @@ export interface UserProfile {
   avatarStyle: 'initials' | 'vinyl' | 'wave';
 }
 
+export type CanvasResolution = 'auto' | '1080p' | '720p' | '480p' | '360p';
+
 export interface AppSettings {
   audioQuality: '320k' | '160k' | '96k';
   autoplay: boolean;
@@ -62,6 +64,8 @@ export interface AppSettings {
   releaseNotifications: boolean;
   chartNotifications: boolean;
   pauseHistory: boolean;
+  canvasEnabled?: boolean;
+  canvasResolution?: CanvasResolution;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';

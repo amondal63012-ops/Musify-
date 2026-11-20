@@ -16,13 +16,13 @@ import {
   PictureInPicture2,
   Maximize2,
 } from 'lucide-react';
-import { Track, RepeatMode } from '../types';
+import { Track, RepeatMode, CanvasResolution } from '../types';
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import MobileNowPlaying from './MobileNowPlaying';
 import { canSaveTrackOffline, resolveOfflineAudioUrl } from '../lib/offlineVault';
 import { isNativeAndroid, resolveApiUrl } from '../lib/apiConfig';
-import { resolveTrackFallback } from '../api';
+import { getCanvasMedia, resolveTrackFallback } from '../api';
 import { AuraMedia3, canUseNativeMedia3 } from '../lib/nativeAudioBridge';
 import { ECHO_COVERS } from './echoCovers';
 import { getCrispCoverUrl } from '../lib/coverUrl';
@@ -54,6 +54,10 @@ interface PlayerProps {
   onReorderQueue?: (fromIndex: number, toIndex: number) => void;
   onRemoveFromQueue?: (index: number) => void;
   onClearQueue?: () => void;
+  canvasEnabled?: boolean;
+  canvasResolution?: CanvasResolution;
+  onToggleCanvasEnabled?: () => void;
+  onChangeCanvasResolution?: (resolution: CanvasResolution) => void;
 }
 
 interface DocumentPiPWindowApi {
@@ -87,17 +91,23 @@ export default function Player({
   onReorderQueue,
   onRemoveFromQueue,
   onClearQueue,
+  canvasEnabled = true,
+  canvasResolution = 'auto',
+  onToggleCanvasEnabled,
+  onChangeCanvasResolution,
 }: PlayerProps) {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const [isPiPOpen, setIsPiPOpen] = useState(false);
-  const [resolvedPlaybackUrl, setResolvedPlaybackUrl] = useState<string | null>(null);
+  const [offlineOverride, setOfflineOverride] = useState<{ trackId: string; url: string } | null>(null);
   const [scrubPreviewTime, setScrubPreviewTime] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const hlsManifestReadyRef = useRef(false);
+  const playPromiseRef = useRef<Promise<void> | null>(null);
   const retryCountRef = useRef(0);
   const fallbackAttemptedRef = useRef<Set<string>>(new Set());
   const prewarmedTrackIdsRef = useRef<Set<string>>(new Set());
@@ -113,7 +123,11 @@ export default function Player({
   const pipWindowRef = useRef<Window | null>(null);
   const callbacksRef = useRef({ onPlayPause, onNext, onPrev, onExternalPlayingChange });
 
-  const activeStreamUrl = resolveApiUrl(resolvedPlaybackUrl || currentTrack?.streamUrl || '');
+  const resolvedTrackStreamUrl =
+    currentTrack && offlineOverride?.trackId === currentTrack.id
+      ? offlineOverride.url
+      : currentTrack?.streamUrl || '';
+  const activeStreamUrl = resolveApiUrl(resolvedTrackStreamUrl);
   const usingNativeMedia3 = canUseNativeMedia3(activeStreamUrl);
   const usingNativeMedia3Ref = useRef(usingNativeMedia3);
   usingNativeMedia3Ref.current = usingNativeMedia3;
@@ -151,17 +165,18 @@ export default function Player({
   useEffect(() => {
     let cancelled = false;
     if (!currentTrack) {
-      setResolvedPlaybackUrl(null);
+      setOfflineOverride(null);
       return;
     }
 
+    const trackId = currentTrack.id;
     const resolveUrl = async () => {
-      const offlineUrl = await resolveOfflineAudioUrl(currentTrack.id);
+      const offlineUrl = await resolveOfflineAudioUrl(trackId);
       if (cancelled) return;
       if (offlineUrl) {
-        setResolvedPlaybackUrl(offlineUrl);
+        setOfflineOverride({ trackId, url: offlineUrl });
       } else {
-        setResolvedPlaybackUrl(currentTrack.streamUrl || null);
+        setOfflineOverride((prev) => (prev && prev.trackId === trackId ? null : prev));
       }
     };
 
@@ -169,7 +184,28 @@ export default function Player({
     return () => {
       cancelled = true;
     };
-  }, [currentTrack?.id, currentTrack?.streamUrl, isOfflineSaved]);
+  }, [currentTrack?.id, isOfflineSaved]);
+
+  const safePlayAudio = (audio: HTMLAudioElement) => {
+    try {
+      const p = audio.play();
+      if (p && typeof p.then === 'function') {
+        playPromiseRef.current = p;
+        p.catch((err: unknown) => {
+          const name = err && typeof err === 'object' && 'name' in err ? String((err as { name: unknown }).name) : '';
+          if (name !== 'AbortError') {
+            console.warn('Audio play request prevented:', err);
+          }
+        }).finally(() => {
+          if (playPromiseRef.current === p) {
+            playPromiseRef.current = null;
+          }
+        });
+      }
+    } catch {
+      // Ignore synchronous playback guards
+    }
+  };
 
   const attemptTrackFallback = async () => {
     if (!currentTrack || currentTrack.source === 'local' || !onReplaceTrack) {
@@ -220,6 +256,14 @@ export default function Player({
     }
     setDuration(currentTrack?.duration ? currentTrack.duration / 1000 : 0);
   }, [currentTrack?.id]);
+
+  useEffect(() => {
+    if (!canvasEnabled || !currentTrack || currentTrack.source === 'local') return;
+    const timer = window.setTimeout(() => {
+      getCanvasMedia(currentTrack.title, currentTrack.artist, canvasResolution).catch(() => {});
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.source, canvasEnabled, canvasResolution]);
 
   useEffect(() => {
     if (currentTrack && isPlaying && !isDirectAudio && currentTrack.source !== 'local') {
@@ -544,12 +588,14 @@ export default function Player({
     if (isDirectAudio && activeStreamUrl) {
       audio.loop = false;
       const isHls = activeStreamUrl.includes('.m3u8') || activeStreamUrl.includes('proto=hls');
+      const useHlsJs = isHls && Hls.isSupported() && !audio.canPlayType('application/vnd.apple.mpegurl');
 
-      if (isHls && Hls.isSupported() && !audio.canPlayType('application/vnd.apple.mpegurl')) {
+      if (useHlsJs) {
         if (!hlsRef.current || (hlsRef.current as unknown as { url: string }).url !== activeStreamUrl) {
           if (hlsRef.current) {
             hlsRef.current.destroy();
           }
+          hlsManifestReadyRef.current = false;
           const hls = new Hls({
             enableWorker: false,
             lowLatencyMode: false,
@@ -561,10 +607,12 @@ export default function Player({
           hls.attachMedia(audio);
           (hls as unknown as { url: string }).url = activeStreamUrl;
           loadedStreamUrlRef.current = activeStreamUrl;
+          setProgress(0);
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            audio.volume = volume;
-            if (isPlaying) {
-              audio.play().catch((e) => console.warn('HLS play error:', e));
+            hlsManifestReadyRef.current = true;
+            audio.volume = volumeRef.current;
+            if (isPlayingRef.current) {
+              safePlayAudio(audio);
             }
           });
           hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -578,34 +626,40 @@ export default function Player({
               } else {
                 hls.destroy();
                 hlsRef.current = null;
+                hlsManifestReadyRef.current = false;
                 attemptTrackFallback();
               }
             }
           });
           hlsRef.current = hls;
         }
+
+        if (isPlaying) {
+          if (hlsManifestReadyRef.current && audio.paused) {
+            safePlayAudio(audio);
+          }
+        } else if (!audio.paused) {
+          audio.pause();
+        }
       } else {
         if (hlsRef.current) {
           hlsRef.current.destroy();
           hlsRef.current = null;
+          hlsManifestReadyRef.current = false;
         }
         if (loadedStreamUrlRef.current !== activeStreamUrl) {
           loadedStreamUrlRef.current = activeStreamUrl;
+          audio.pause();
           audio.src = activeStreamUrl;
-          audio.volume = volume;
-          audio.load();
+          audio.volume = volumeRef.current;
           setProgress(0);
         }
-      }
 
-      if (isPlaying) {
-        if (audio.paused) {
-          audio.play().catch((err) => {
-            console.warn('Audio play request prevented:', err);
-          });
-        }
-      } else {
-        if (!audio.paused) {
+        if (isPlaying) {
+          if (audio.paused) {
+            safePlayAudio(audio);
+          }
+        } else if (!audio.paused) {
           audio.pause();
         }
       }
@@ -613,9 +667,12 @@ export default function Player({
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
+        hlsManifestReadyRef.current = false;
       }
       loadedStreamUrlRef.current = null;
-      audio.pause();
+      if (!audio.paused) {
+        audio.pause();
+      }
     }
   }, [currentTrack?.id, activeStreamUrl, isPlaying, isDirectAudio, usingNativeMedia3]);
 
@@ -795,8 +852,8 @@ export default function Player({
               pendingSeekRef.current = queued;
             }
           }
-          if (isPlaying && audio.paused) {
-            audio.play().catch(() => {});
+          if (isPlaying && audio.paused && !playPromiseRef.current) {
+            safePlayAudio(audio);
           }
         }}
         onTimeUpdate={() => {
@@ -1078,11 +1135,26 @@ export default function Player({
           isOfflineSaved={isOfflineSaved}
           isSavingOffline={isSavingOffline}
           onToggleSaveOffline={onToggleSaveOffline}
+          canvasEnabled={canvasEnabled}
+          canvasResolution={canvasResolution}
+          onToggleCanvasEnabled={onToggleCanvasEnabled}
+          onChangeCanvasResolution={onChangeCanvasResolution}
         />
       )}
 
       {/* Desktop Floating Glass Music Bar with Blurred Mixed Thumbnail Colors */}
-      <div className="hidden md:flex relative h-[84px] mx-3 mb-3 rounded-2xl shadow-[0_16px_44px_rgba(0,0,0,0.85)] items-center justify-between px-4 z-50 text-white select-none">
+      <div
+        onClick={(e) => {
+          if (!currentTrack) return;
+          if ((e.target as HTMLElement | null)?.closest('button, input, [role="slider"], [role="button"]')) {
+            return;
+          }
+          setIsNowPlayingOpen(true);
+        }}
+        className={`hidden md:flex relative h-[84px] mx-3 mb-3 rounded-2xl shadow-[0_16px_44px_rgba(0,0,0,0.85)] items-center justify-between px-4 z-50 text-white select-none ${
+          currentTrack ? 'cursor-pointer' : ''
+        }`}
+      >
         {/* Dynamic Thumbnail Color-Mixture Blurred Glass Rear Backdrop */}
         <div
           aria-hidden="true"

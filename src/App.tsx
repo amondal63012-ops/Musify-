@@ -42,6 +42,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   releaseNotifications: true,
   chartNotifications: true,
   pauseHistory: false,
+  canvasEnabled: true,
+  canvasResolution: 'auto',
 };
 
 function readStorage<T>(key: string, fallback: T): T {
@@ -54,7 +56,18 @@ function readStorage<T>(key: string, fallback: T): T {
 }
 
 export default function App() {
-  const [tracks, setTracks] = useState<Track[]>([]);
+  const [tracks, setTracks] = useState<Track[]>(() => {
+    try {
+      const raw = localStorage.getItem('aura_swr_default_tracks_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed?.data)) return parsed.data;
+      }
+    } catch {
+      // Ignore storage read issue
+    }
+    return [];
+  });
   const [offlineTracks, setOfflineTracks] = useState<Track[]>([]);
   const [savingOfflineId, setSavingOfflineId] = useState<string | null>(null);
   const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
@@ -99,9 +112,10 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile>(() =>
     readStorage<UserProfile>('aura_user_profile', DEFAULT_PROFILE)
   );
-  const [appSettings, setAppSettings] = useState<AppSettings>(() =>
-    readStorage<AppSettings>('aura_app_settings', DEFAULT_SETTINGS)
-  );
+  const [appSettings, setAppSettings] = useState<AppSettings>(() => ({
+    ...DEFAULT_SETTINGS,
+    ...readStorage<Partial<AppSettings>>('aura_app_settings', {}),
+  }));
 
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [selectedArtistId, setSelectedArtistId] = useState<string | null>(null);
@@ -143,7 +157,19 @@ export default function App() {
     getOfflineTracks().then((saved) => {
       setOfflineTracks(saved);
     });
-    handleSearch('Global Top Hits Official', false, false);
+    const timer = window.setTimeout(() => {
+      searchTracks('Global Top Hits Official')
+        .then((results) => {
+          if (results.length > 0) {
+            setTracks(results);
+            setPlaybackContext((prev) =>
+              prev.trackList.length === 0 ? { type: 'search', trackList: results } : prev
+            );
+          }
+        })
+        .catch(() => {});
+    }, 150);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -623,6 +649,20 @@ export default function App() {
         onReorderQueue={handleReorderQueue}
         onRemoveFromQueue={handleRemoveFromQueue}
         onClearQueue={handleClearQueue}
+        canvasEnabled={appSettings.canvasEnabled !== false}
+        canvasResolution={appSettings.canvasResolution || 'auto'}
+        onToggleCanvasEnabled={() =>
+          setAppSettings((prev) => ({
+            ...prev,
+            canvasEnabled: prev.canvasEnabled === false ? true : false,
+          }))
+        }
+        onChangeCanvasResolution={(res) =>
+          setAppSettings((prev) => ({
+            ...prev,
+            canvasResolution: res,
+          }))
+        }
       />
 
       <MobileBottomNav

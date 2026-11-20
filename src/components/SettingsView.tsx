@@ -173,6 +173,48 @@ export default function SettingsView({
           checked={settings.gaplessPlayback}
           onChange={(gaplessPlayback) => onUpdateSettings({ ...settings, gaplessPlayback })}
         />
+        <ToggleRow
+          label="Background Video Canvas"
+          description="Show muted looping official song visuals behind Now Playing"
+          checked={settings.canvasEnabled !== false}
+          onChange={(canvasEnabled) => {
+            onUpdateSettings({ ...settings, canvasEnabled });
+            flashNotice(canvasEnabled ? 'Video canvas enabled' : 'Video canvas turned off');
+          }}
+        />
+        <div className="pt-3.5">
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div>
+              <p className="text-sm font-semibold text-white">Canvas Video Resolution</p>
+              <p className="text-xs text-[#A3A3A3] mt-0.5">
+                Adjust visual clarity or lower resolution for faster loading
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(['auto', '1080p', '720p', '480p', '360p'] as const).map((resOpt) => {
+              const active = (settings.canvasResolution || 'auto') === resOpt;
+              return (
+                <button
+                  key={resOpt}
+                  type="button"
+                  disabled={settings.canvasEnabled === false}
+                  onClick={() => {
+                    onUpdateSettings({ ...settings, canvasResolution: resOpt });
+                    flashNotice(`Canvas resolution: ${resOpt.toUpperCase()}`);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                    active
+                      ? 'bg-white text-black border-white'
+                      : 'bg-[#191919] text-[#A3A3A3] border-[#303030] hover:text-white hover:bg-[#222222]'
+                  }`}
+                >
+                  {resOpt === 'auto' ? 'Auto' : resOpt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
       {/* Theme Settings */}

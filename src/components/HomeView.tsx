@@ -65,6 +65,19 @@ const RECOMMENDED_RADIO_MIXES = [
   },
 ];
 
+function readHomeSwr<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.ts !== 'number' || !parsed.data) return null;
+    if (Date.now() - parsed.ts > 1000 * 60 * 60 * 24) return null;
+    return parsed.data as T;
+  } catch {
+    return null;
+  }
+}
+
 export default function HomeView({
   currentTrack,
   isPlaying,
@@ -80,10 +93,14 @@ export default function HomeView({
   onViewAllExplore,
   onViewAllArtists,
 }: HomeViewProps) {
-  const [charts, setCharts] = useState<ChartItem[]>([]);
-  const [viralSongs, setViralSongs] = useState<Track[]>([]);
-  const [artists, setArtists] = useState<Artist[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [charts, setCharts] = useState<ChartItem[]>(() => readHomeSwr<ChartItem[]>('aura_swr_charts_v1') || []);
+  const [viralSongs, setViralSongs] = useState<Track[]>(() => readHomeSwr<Track[]>('aura_swr_viral_v1') || []);
+  const [artists, setArtists] = useState<Artist[]>(() => readHomeSwr<Artist[]>('aura_swr_artists_v1') || []);
+  const [isLoading, setIsLoading] = useState(
+    () =>
+      !((readHomeSwr<ChartItem[]>('aura_swr_charts_v1') || []).length > 0 &&
+        (readHomeSwr<Track[]>('aura_swr_viral_v1') || []).length > 0)
+  );
   const [activeFilter, setActiveFilter] = useState<'all' | 'music' | 'artists' | 'albums'>('all');
 
   useEffect(() => {
@@ -94,9 +111,9 @@ export default function HomeView({
       getArtists().catch(() => []),
     ]).then(([c, v, a]) => {
       if (!active) return;
-      if (Array.isArray(c)) setCharts(c);
-      if (Array.isArray(v)) setViralSongs(v);
-      if (Array.isArray(a)) setArtists(a);
+      if (Array.isArray(c) && c.length > 0) setCharts(c);
+      if (Array.isArray(v) && v.length > 0) setViralSongs(v);
+      if (Array.isArray(a) && a.length > 0) setArtists(a);
       setIsLoading(false);
     });
     return () => {
